@@ -110,6 +110,8 @@ extern void public_key_destroy(void *payload);
 struct public_key_signature {
 	u8 *digest;
 	u8 digest_size;			/* Number of bytes in digest */
+	u8 *S;				/* signature S of length k octets */
+	size_t k;			/* length k of signature S */
 	u8 nr_mpi;			/* Occupancy of mpi[] */
 	enum pkey_hash_algo pkey_hash_algo : 8;
 	union {
