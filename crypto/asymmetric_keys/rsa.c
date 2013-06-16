@@ -168,6 +168,20 @@ static int RSA_I2OSP(MPI x, size_t xLen, u8 **_X)
 }
 
 /*
+ * Octet String to Integer conversion [RFC3447 sec 4.2]
+ */
+static int RSA_OS2IP(u8 *X, size_t XLen, MPI *_x)
+{
+	MPI x;
+
+	x = mpi_alloc((XLen + BYTES_PER_MPI_LIMB - 1) / BYTES_PER_MPI_LIMB);
+	mpi_set_buffer(x, X, XLen, 0);
+
+	*_x = x;
+	return 0;
+}
+
+/*
  * EMSA_PKCS1-v1_5-ENCODE [RFC3447 sec 9.2]
  * @M: message to be signed, an octet string
  * @emLen: intended length in octets of the encoded message
@@ -419,6 +433,9 @@ static struct public_key_signature *RSA_generate_signature(
 {
 	struct public_key_signature *pks;
 	u8 *EM = NULL;
+	MPI m = NULL;
+	MPI s = NULL;
+	unsigned X_size;
 	size_t emLen;
 	int ret;
 
@@ -438,14 +455,16 @@ static struct public_key_signature *RSA_generate_signature(
 	if (ret < 0)
 		goto error_v1_5_encode;
 
-	/* TODO 2): m = OS2IP (EM) */
+	/* 2): m = OS2IP (EM) */
+	ret = RSA_OS2IP(EM, emLen, &m);
+	if (ret < 0)
+		goto error_v1_5_encode;
 
 	/* TODO 3): s = RSASP1 (K, m) */
+	s = m;
 
-	/* TODO 4): S = I2OSP (s, k) */
-
-	/* TODO: signature S to a u8* S or set to sig->rsa.s? */
-	pks->S = EM;            /* TODO: temporary set S to EM */
+	/* 4): S = I2OSP (s, k) */
+	_RSA_I2OSP(s, &X_size, &pks->S);
 
 	return pks;
 
