@@ -121,11 +121,29 @@ static int RSAVP1(const struct public_key *key, MPI s, MPI *_m)
 /*
  * Integer to Octet String conversion [RFC3447 sec 4.1]
  */
-static int RSA_I2OSP(MPI x, size_t xLen, u8 **_X)
+static int _RSA_I2OSP(MPI x, unsigned *X_size, u8 **_X)
 {
-	unsigned X_size, x_size;
 	int X_sign;
 	u8 *X;
+
+	X = mpi_get_buffer(x, X_size, &X_sign);
+	if (!X)
+		return -ENOMEM;
+	if (X_sign < 0) {
+		kfree(X);
+		return -EBADMSG;
+	}
+
+	*_X = X;
+	return 0;
+}
+
+static int RSA_I2OSP(MPI x, size_t xLen, u8 **_X)
+{
+	unsigned x_size;
+	unsigned X_size;
+	u8 *X = NULL;
+	int ret;
 
 	/* Make sure the string is the right length.  The number should begin
 	 * with { 0x00, 0x01, ... } so we have to account for 15 leading zero
@@ -136,13 +154,10 @@ static int RSA_I2OSP(MPI x, size_t xLen, u8 **_X)
 	if (x_size != xLen * 8 - 15)
 		return -ERANGE;
 
-	X = mpi_get_buffer(x, &X_size, &X_sign);
-	if (!X)
-		return -ENOMEM;
-	if (X_sign < 0) {
-		kfree(X);
-		return -EBADMSG;
-	}
+	ret = _RSA_I2OSP(x, &X_size, &X);
+	if (ret < 0)
+		return ret;
+
 	if (X_size != xLen - 1) {
 		kfree(X);
 		return -EBADMSG;
