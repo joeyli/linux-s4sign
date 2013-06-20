@@ -86,6 +86,39 @@ static const struct {
 };
 
 /*
+ * RSASP1() function [RFC3447 sec 5.2.1]
+ */
+static int RSASP1(const struct private_key *key, MPI m, MPI *_s)
+{
+	MPI s;
+	int ret;
+
+	/* (1) Validate 0 <= m < n */
+	if (mpi_cmp_ui(m, 0) < 0) {
+		kleave(" = -EBADMSG [m < 0]");
+		return -EBADMSG;
+	}
+	if (mpi_cmp(m, key->rsa.n) >= 0) {
+		kleave(" = -EBADMSG [m >= n]");
+		return -EBADMSG;
+	}
+
+	s = mpi_alloc(0);
+	if (!s)
+		return -ENOMEM;
+
+	/* (2) s = m^d mod n */
+	ret = mpi_powm(s, m, key->rsa.d, key->rsa.n);
+	if (ret < 0) {
+		mpi_free(s);
+		return ret;
+	}
+
+	*_s = s;
+	return 0;
+}
+
+/*
  * RSAVP1() function [RFC3447 sec 5.2.2]
  */
 static int RSAVP1(const struct public_key *key, MPI s, MPI *_m)
@@ -173,9 +206,12 @@ static int RSA_I2OSP(MPI x, size_t xLen, u8 **_X)
 static int RSA_OS2IP(u8 *X, size_t XLen, MPI *_x)
 {
 	MPI x;
+	int ret;
 
 	x = mpi_alloc((XLen + BYTES_PER_MPI_LIMB - 1) / BYTES_PER_MPI_LIMB);
-	mpi_set_buffer(x, X, XLen, 0);
+	ret = mpi_set_buffer(x, X, XLen, 0);
+	if (ret < 0)
+		return ret;
 
 	*_x = x;
 	return 0;
@@ -460,8 +496,13 @@ static struct public_key_signature *RSA_generate_signature(
 	if (ret < 0)
 		goto error_v1_5_encode;
 
-	/* TODO 3): s = RSASP1 (K, m) */
-	s = m;
+	/* 3): s = RSASP1 (K, m) */
+	RSASP1(key, m, &s);
+
+	pks->rsa.s = s;
+	pks->nr_mpi = 1;
+	pks->k = mpi_get_nbits(s);
+	pks->k = (pks->k + 7) / 8;
 
 	/* 4): S = I2OSP (s, k) */
 	_RSA_I2OSP(s, &X_size, &pks->S);
