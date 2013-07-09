@@ -35,4 +35,15 @@ config X509_CERTIFICATE_PARSER
 	  data and provides the ability to instantiate a crypto key from a
 	  public key packet found inside the certificate.
 
+config PKCS8_PRIVATE_KEY_INFO_PARSER
+	tristate "PKCS #8 private key info parser"
+	depends on ASYMMETRIC_PUBLIC_KEY_SUBTYPE
+	select ASN1
+	select OID_REGISTRY
+	select CRYPTO_SHA256
+	help
+	  This option provides support for parsing PKCS #8 RSA private key info
+	  format blobs for key data and provides the ability to instantiate a
+	  crypto key from a private key packet.
+
 endif # ASYMMETRIC_KEY_TYPE

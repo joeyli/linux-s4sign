@@ -1,0 +1,29 @@
+--
+-- Representation of RSA private key with information.
+--
+
+RSAPrivateKey ::= SEQUENCE {
+	version			Version,
+	modulus                 INTEGER ({ rsa_priv_extract_mpi }),	-- n
+	publicExponent          INTEGER ({ rsa_priv_extract_mpi }),	-- e
+	privateExponent         INTEGER ({ rsa_priv_extract_mpi }),	-- d
+	prime1                  INTEGER ({ rsa_priv_extract_mpi }),	-- p
+	prime2                  INTEGER ({ rsa_priv_extract_mpi }),	-- q
+	exponent1               INTEGER ({ rsa_priv_extract_mpi }),	-- d mod (p-1)
+	exponent2               INTEGER ({ rsa_priv_extract_mpi }),	-- d mod (q-1)
+	coefficient             INTEGER ({ rsa_priv_extract_mpi })	-- (inverse of q) mod p
+	-- Doesn't support multi-prime
+	-- otherPrimeInfos         [ 0 ] OtherPrimeInfos OPTIONAL
+	}
+
+-- Version ::= INTEGER { two-prime(0), multi(1) }
+Version ::= INTEGER
+
+-- OtherPrimeInfos ::= SEQUENCE SIZE(1..MAX) OF OtherPrimeInfo
+OtherPrimeInfos ::= SEQUENCE OF OtherPrimeInfo
+
+OtherPrimeInfo ::= SEQUENCE {
+    prime             INTEGER,  -- ri
+    exponent          INTEGER,  -- di
+    coefficient       INTEGER   -- ti
+}
