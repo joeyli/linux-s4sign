@@ -1,0 +1,19 @@
+--
+-- Representation of RSA PKCS#8 private key information.
+--
+
+PrivateKeyInfo ::= SEQUENCE {
+	version			Version,
+        privateKeyAlgorithm	AlgorithmIdentifier,
+	privateKey	        OCTET STRING ({ pkcs8_extract_key_data })
+	-- Does not support attributes
+	-- attributes		[ 0 ] Attributes OPTIONAL
+	}
+
+-- Version ::= INTEGER { two-prime(0), multi(1) }
+Version ::= INTEGER
+
+AlgorithmIdentifier ::= SEQUENCE {
+        algorithm               OBJECT IDENTIFIER ({ pkcs8_note_OID }),
+        parameters              ANY OPTIONAL
+	}
