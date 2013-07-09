@@ -44,6 +44,7 @@ EXPORT_SYMBOL_GPL(pkey_hash_algo);
 const char *const pkey_id_type[PKEY_ID_TYPE__LAST] = {
 	[PKEY_ID_PGP]		= "PGP",
 	[PKEY_ID_X509]		= "X509",
+	[PKEY_ID_PKCS8]         = "PKCS8",
 };
 EXPORT_SYMBOL_GPL(pkey_id_type);
 
