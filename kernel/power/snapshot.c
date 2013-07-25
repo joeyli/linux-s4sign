@@ -860,6 +860,9 @@ static struct page *saveable_highmem_page(struct zone *zone, unsigned long pfn)
 
 	BUG_ON(!PageHighMem(page));
 
+	if (swsusp_page_is_sign_key(page))
+		return NULL;
+
 	if (swsusp_page_is_forbidden(page) ||  swsusp_page_is_free(page) ||
 	    PageReserved(page))
 		return NULL;
@@ -921,6 +924,9 @@ static struct page *saveable_page(struct zone *zone, unsigned long pfn)
 		return NULL;
 
 	BUG_ON(PageHighMem(page));
+
+	if (swsusp_page_is_sign_key(page))
+		return NULL;
 
 	if (swsusp_page_is_forbidden(page) || swsusp_page_is_free(page))
 		return NULL;
