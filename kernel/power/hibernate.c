@@ -844,6 +844,8 @@ static int software_resume(void)
  Unlock:
 	mutex_unlock(&pm_mutex);
 	pr_debug("PM: Hibernation image not present or could not be loaded.\n");
+	if (error && error != -ENOENT && error != -ENODEV && error != -ENXIO)
+		load_sign_key_data();
 	return error;
 close_finish:
 	swsusp_close(FMODE_READ);
