@@ -254,6 +254,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 		if (!snapshot_image_verify()) {
 			pr_info("PM: snapshot signature check SUCCESS!\n");
 			snapshot_fill_s4_skey();
@@ -262,6 +263,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
+#endif
 		error = hibernation_restore(data->platform_support);
 		break;
 

@@ -1004,13 +1004,17 @@ static int load_image(struct swap_map_handle *handle,
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
-		ret = snapshot_image_verify();
-		if (ret)
-			pr_info("PM: snapshot signature check FAIL: %d\n", ret);
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 		else {
-			pr_info("PM: snapshot signature check SUCCESS!\n");
-			snapshot_fill_s4_skey();
+			ret = snapshot_image_verify();
+			if (ret)
+				pr_info("PM: snapshot signature check FAIL: %d\n", ret);
+			else {
+				pr_info("PM: snapshot signature check SUCCESS!\n");
+				snapshot_fill_s4_skey();
+			}
 		}
+#endif
 	}
 	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
 	return ret;
@@ -1365,13 +1369,17 @@ out_finish:
 				}
 			}
 		}
-		ret = snapshot_image_verify();
-		if (ret)
-			pr_info("PM: snapshot signature check FAIL: %d\n", ret);
-		else {
-			pr_info("PM: snapshot signature check SUCCESS!\n");
-			snapshot_fill_s4_skey();
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+		if (!ret) {
+			ret = snapshot_image_verify();
+			if (ret)
+				pr_info("PM: snapshot signature check FAIL: %d\n", ret);
+			else {
+				pr_info("PM: snapshot signature check SUCCESS!\n");
+				snapshot_fill_s4_skey();
+			}
 		}
+#endif
 	}
 	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
 out_clean:
