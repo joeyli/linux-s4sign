@@ -860,8 +860,10 @@ static struct page *saveable_highmem_page(struct zone *zone, unsigned long pfn)
 
 	BUG_ON(!PageHighMem(page));
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 	if (swsusp_page_is_sign_key(page))
 		return NULL;
+#endif
 
 	if (swsusp_page_is_forbidden(page) ||  swsusp_page_is_free(page) ||
 	    PageReserved(page))
@@ -925,8 +927,10 @@ static struct page *saveable_page(struct zone *zone, unsigned long pfn)
 
 	BUG_ON(PageHighMem(page));
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 	if (swsusp_page_is_sign_key(page))
 		return NULL;
+#endif
 
 	if (swsusp_page_is_forbidden(page) || swsusp_page_is_free(page))
 		return NULL;
@@ -1052,6 +1056,8 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 {
 	struct zone *zone;
 	unsigned long pfn, dst_pfn;
+
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 	struct page *d_page;
 	void *hash_buffer = NULL;
 	struct crypto_shash *tfm;
@@ -1083,6 +1089,7 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 	ret = crypto_shash_init(desc);
 	if (ret < 0)
 		goto error_shash;
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
 
 	for_each_populated_zone(zone) {
 		unsigned long max_zone_pfn;
@@ -1102,6 +1109,7 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 		dst_pfn = memory_bm_next_pfn(copy_bm);
 		copy_data_page(dst_pfn, pfn);
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 		/* Generate digest */
 		d_page = pfn_to_page(dst_pfn);
 		if (PageHighMem(d_page)) {
@@ -1116,8 +1124,10 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 		ret = crypto_shash_update(desc, hash_buffer, PAGE_SIZE);
 		if (ret)
 			goto error_shash;
+#endif
 	}
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 	crypto_shash_final(desc, digest);
 	if (ret)
 		goto error_shash;
@@ -1147,9 +1157,11 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 	kfree(pks);
 	kfree(digest);
 	crypto_free_shash(tfm);
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
 
 	return 0;
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 error_sign:
 	destroy_sign_key(s4_sign_key);
 error_key:
@@ -1158,6 +1170,7 @@ error_shash:
 error_digest:
 	crypto_free_shash(tfm);
 	return ret;
+#endif
 }
 
 /* Total number of image pages */
@@ -2303,7 +2316,9 @@ static void *get_buffer(struct memory_bitmap *bm, struct chain_allocator *ca)
 	return pbe->address;
 }
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 void **h_buf;
+#endif
 
 /**
  *	snapshot_write_next - used for writing the system memory snapshot.
@@ -2347,12 +2362,14 @@ int snapshot_write_next(struct snapshot_handle *handle)
 		if (error)
 			return error;
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 		/* Allocate void * array to keep buffer point for generate hash,
 		 * h_buf will freed in snapshot_image_verify().
 		 */
 		h_buf = kmalloc(sizeof(void *) * nr_copy_pages, GFP_KERNEL);
 		if (!h_buf)
 			pr_err("Allocate hash buffer fail!");
+#endif
 
 		error = memory_bm_create(&copy_bm, GFP_ATOMIC, PG_ANY);
 		if (error)
@@ -2380,8 +2397,10 @@ int snapshot_write_next(struct snapshot_handle *handle)
 			handle->sync_read = 0;
 			if (IS_ERR(handle->buffer))
 				return PTR_ERR(handle->buffer);
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 			if (h_buf)
 				*h_buf = handle->buffer;
+#endif
 		}
 	} else {
 		copy_last_highmem_page();
@@ -2392,8 +2411,10 @@ int snapshot_write_next(struct snapshot_handle *handle)
 			return PTR_ERR(handle->buffer);
 		if (handle->buffer != buffer)
 			handle->sync_read = 0;
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 		if (h_buf)
 			*(h_buf + (handle->cur - nr_meta_pages - 1)) = handle->buffer;
+#endif
 	}
 	handle->cur++;
 	return PAGE_SIZE;
@@ -2426,6 +2447,7 @@ int snapshot_image_loaded(struct snapshot_handle *handle)
 			handle->cur <= nr_meta_pages + nr_copy_pages);
 }
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 int snapshot_verify_signature(u8 *digest, size_t digest_size)
 {
 	struct key *s4_wake_key;
@@ -2540,6 +2562,7 @@ error_digest:
 	crypto_free_shash(tfm);
 	return ret;
 }
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
 
 #ifdef CONFIG_HIGHMEM
 /* Assumes that @buf is ready and points to a "safe" page */

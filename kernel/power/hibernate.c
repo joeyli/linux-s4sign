@@ -632,7 +632,9 @@ static void power_down(void)
 int hibernate(void)
 {
 	int error;
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 	int skey_error;
+#endif
 
 	lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
@@ -682,9 +684,11 @@ int hibernate(void)
 		pm_restore_gfp_mask();
 	} else {
 		pr_debug("PM: Image restored successfully.\n");
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 		skey_error = load_sign_key_data();
 		if (skey_error)
 			pr_err("Load S4 sign key fail: %d", skey_error);
+#endif
 	}
 
  Thaw:
@@ -844,8 +848,10 @@ static int software_resume(void)
  Unlock:
 	mutex_unlock(&pm_mutex);
 	pr_debug("PM: Hibernation image not present or could not be loaded.\n");
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 	if (error && error != -ENOENT && error != -ENODEV && error != -ENXIO)
 		load_sign_key_data();
+#endif
 	return error;
 close_finish:
 	swsusp_close(FMODE_READ);
