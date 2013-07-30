@@ -2536,6 +2536,8 @@ error_mpi:
 
 int snapshot_image_verify(void)
 {
+	struct timeval start;
+	struct timeval stop;
 	struct crypto_shash *tfm;
 	struct shash_desc *desc;
 	u8 *digest;
@@ -2563,6 +2565,8 @@ int snapshot_image_verify(void)
 	desc->tfm = tfm;
 	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 
+	do_gettimeofday(&start);
+
 	ret = crypto_shash_init(desc);
 	if (ret < 0)
 		goto error_shash;
@@ -2580,6 +2584,9 @@ int snapshot_image_verify(void)
 	ret = snapshot_verify_signature(digest, digest_size);
 	if (ret)
 		goto error_verify;
+
+	do_gettimeofday(&stop);
+	swsusp_show_speed(&start, &stop, nr_copy_pages, "Verified");
 
 	kfree(h_buf);
 	kfree(digest);
