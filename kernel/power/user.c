@@ -48,6 +48,9 @@ static int snapshot_open(struct inode *inode, struct file *filp)
 	struct snapshot_data *data;
 	int error;
 
+	if (secure_hibernate(SIG_ENFORCE | SIG_CHECK_SKEY | SIG_SECURE_LOCKDOWN))
+		return -EPERM;
+
 	lock_system_sleep();
 
 	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
@@ -254,7 +257,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
-		if (snapshot_image_verify()) {
+		if (secure_hibernate(0) && snapshot_image_verify()) {
 			error = -EPERM;
 			break;
 		}

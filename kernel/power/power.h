@@ -2,6 +2,7 @@
 #include <linux/suspend_ioctls.h>
 #include <linux/utsname.h>
 #include <linux/freezer.h>
+#include <linux/module.h>
 
 /* The maximum length of snapshot signature */
 #define SIG_LEN 512
@@ -174,6 +175,11 @@ extern int swsusp_unmark(void);
 #endif
 
 /* kernel/power/hibernate_key.c */
+#define SIG_ENFORCE            (1<<0)  /* Check sig_enforce flag */
+#define SIG_CHECK_SKEY         (1<<1)  /* Check S4SignKey exist */
+#define SIG_CHECK_WKEY         (1<<2)  /* Check S4WakeKey exist */
+#define SIG_SECURE_LOCKDOWN     (1<<3)  /* TODO: binding to new secure level */
+
 #ifdef CONFIG_SNAPSHOT_VERIFICATION
 extern bool skey_data_available(void);
 extern struct key *get_sign_key(void);
@@ -189,6 +195,7 @@ extern unsigned long get_sig_forward_info_pfn(void);
 extern void fill_sig_forward_info(void *page_addr, int sig_check_ret);
 extern bool sig_enforced(void);
 extern int set_key_regen_flag(void);
+extern bool secure_hibernate(u8 check_items);
 #else
 static inline bool skey_data_available(void)
 {
@@ -206,6 +213,12 @@ static inline unsigned long get_sig_forward_info_pfn(void)
 static inline int set_key_regen_flag(void)
 {
 	return 0;
+}
+static inline bool secure_hibernate(u8 check_items)
+{
+	/* TODO: adapt to kernel lockdown */
+
+	return false;
 }
 #endif /* !CONFIG_SNAPSHOT_VERIFICATION */
 

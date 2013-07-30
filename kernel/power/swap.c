@@ -1004,7 +1004,7 @@ static int load_image(struct swap_map_handle *handle,
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
-		else
+		else if (secure_hibernate(0))
 			ret = snapshot_image_verify();
 	}
 	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
@@ -1360,7 +1360,7 @@ out_finish:
 				}
 			}
 		}
-		if (!ret)
+		if (!ret && secure_hibernate(0))
 			ret = snapshot_image_verify();
 	}
 	swsusp_show_speed(&start, &stop, nr_to_read, "Read");

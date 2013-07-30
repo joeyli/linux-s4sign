@@ -367,6 +367,22 @@ static int clean_key_regen_flag(void)
 	return ret;
 }
 
+bool secure_hibernate(u8 check_items)
+{
+	bool ret = true;
+
+	if (check_items & SIG_ENFORCE)
+		ret = sig_enforce;
+
+	/* check S4 key to lock hibernate when not available */
+	if (ret && (check_items & SIG_CHECK_SKEY))
+		ret = ret && !skey_data_available();
+	if (ret && (check_items & SIG_CHECK_WKEY))
+		ret = ret && (wkey_data_available() != 0);
+
+	return ret;
+}
+
 static int __init init_sign_key_data(void)
 {
 	skey_data = (void *)get_zeroed_page(GFP_KERNEL);

@@ -1759,13 +1759,15 @@ asmlinkage int swsusp_save(void)
 	nr_copy_pages = nr_pages;
 	nr_meta_pages = DIV_ROUND_UP(nr_pages * sizeof(long), PAGE_SIZE);
 
-	if (skey_data_available()) {
-		ret = swsusp_generate_signature(&copy_bm, nr_pages);
-		if (ret)
-			return ret;
-	} else
-		/* set zero signature if skey doesn't exist */
-		memset(signature, 0, SIG_LEN);
+	if (secure_hibernate(0)) {
+		if (skey_data_available()) {
+			ret = swsusp_generate_signature(&copy_bm, nr_pages);
+			if (ret)
+				return ret;
+		} else
+			/* set zero signature if skey doesn't exist */
+			memset(signature, 0, SIG_LEN);
+	}
 
 	printk(KERN_INFO "PM: Hibernation image created (%d pages copied)\n",
 		nr_pages);
@@ -2398,14 +2400,15 @@ int snapshot_write_next(struct snapshot_handle *handle)
 		if (error)
 			return error;
 
-#ifdef CONFIG_SNAPSHOT_VERIFICATION
 		/* Allocate void * array to keep buffer point for generate hash,
 		 * handle_buffers will freed in snapshot_image_verify().
 		 */
-		handle_buffers = kmalloc(sizeof(void *) * nr_copy_pages, GFP_KERNEL);
-		if (!handle_buffers)
-			pr_err("Allocate hash buffer fail!\n");
-#endif
+		if (secure_hibernate(0)) {
+			handle_buffers =
+				kmalloc(sizeof(void *) * nr_copy_pages, GFP_KERNEL);
+			if (!handle_buffers)
+				pr_err("Allocate hash buffer fail!\n");
+		}
 
 		error = memory_bm_create(&copy_bm, GFP_ATOMIC, PG_ANY);
 		if (error)
@@ -2433,10 +2436,8 @@ int snapshot_write_next(struct snapshot_handle *handle)
 			handle->sync_read = 0;
 			if (IS_ERR(handle->buffer))
 				return PTR_ERR(handle->buffer);
-#ifdef CONFIG_SNAPSHOT_VERIFICATION
-			if (handle_buffers)
+			if (secure_hibernate(0) && handle_buffers)
 				*handle_buffers = handle->buffer;
-#endif
 		}
 	} else {
 		copy_last_highmem_page();
@@ -2447,13 +2448,15 @@ int snapshot_write_next(struct snapshot_handle *handle)
 			return PTR_ERR(handle->buffer);
 		if (handle->buffer != buffer)
 			handle->sync_read = 0;
-#ifdef CONFIG_SNAPSHOT_VERIFICATION
-		if (handle_buffers)
-			*(handle_buffers + (handle->cur - nr_meta_pages - 1)) = handle->buffer;
-		/* Keep the buffer of sign key in snapshot */
-		if (pfn == sig_forward_info_pfn)
-			sig_forward_info_buf = handle->buffer;
-#endif
+		if (secure_hibernate(0)) {
+			if (handle_buffers) {
+				unsigned int offset = handle->cur - nr_meta_pages - 1;
+				*(handle_buffers + offset) = handle->buffer;
+			}
+			/* Keep the buffer of sign key in snapshot */
+			if (pfn == sig_forward_info_pfn)
+				sig_forward_info_buf = handle->buffer;
+		}
 	}
 	handle->cur++;
 	return PAGE_SIZE;
@@ -2546,7 +2549,7 @@ int snapshot_image_verify(void)
 {
 	struct timeval start;
 	struct timeval stop;
-	struct crypto_shash *tfm = NULL
+	struct crypto_shash *tfm = NULL;
 	struct shash_desc *desc;
 	u8 *digest = NULL;
 	size_t digest_size, desc_size;

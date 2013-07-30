@@ -29,6 +29,7 @@
 #include <linux/ctype.h>
 #include <linux/genhd.h>
 #include <linux/key.h>
+#include <linux/efi.h>
 
 #include "power.h"
 
@@ -633,6 +634,9 @@ int hibernate(void)
 {
 	int error;
 
+	if (secure_hibernate(SIG_ENFORCE | SIG_CHECK_SKEY))
+		return -EPERM;
+
 	lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
 	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
@@ -800,6 +804,11 @@ static int software_resume(void)
 	if (error)
 		goto Unlock;
 
+	if (secure_hibernate(SIG_ENFORCE | SIG_CHECK_WKEY)) {
+		mutex_unlock(&pm_mutex);
+		return -EPERM;
+	}
+
 	/* The snapshot device should not be opened while we're running */
 	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
 		error = -EBUSY;
@@ -893,6 +902,11 @@ static ssize_t disk_show(struct kobject *kobj, struct kobj_attribute *attr,
 	int i;
 	char *start = buf;
 
+	if (secure_hibernate(SIG_ENFORCE | SIG_CHECK_SKEY)) {
+		buf += sprintf(buf, "[%s]\n", "disabled");
+		return buf-start;
+	}
+
 	for (i = HIBERNATION_FIRST; i <= HIBERNATION_MAX; i++) {
 		if (!hibernation_modes[i])
 			continue;
@@ -926,6 +940,9 @@ static ssize_t disk_store(struct kobject *kobj, struct kobj_attribute *attr,
 	int len;
 	char *p;
 	int mode = HIBERNATION_INVALID;
+
+	if (secure_hibernate(SIG_ENFORCE | SIG_CHECK_SKEY))
+		return -EPERM;
 
 	p = memchr(buf, '\n', n);
 	len = p ? p - buf : n;
