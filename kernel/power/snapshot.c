@@ -860,7 +860,8 @@ static struct page *saveable_highmem_page(struct zone *zone, unsigned long pfn)
 
 	BUG_ON(!PageHighMem(page));
 
-	if (swsusp_page_is_sign_key(page))
+	if (!capable(CAP_COMPROMISE_KERNEL) &&
+	    swsusp_page_is_sign_key(page))
 		return NULL;
 
 	if (swsusp_page_is_forbidden(page) ||  swsusp_page_is_free(page) ||
@@ -925,7 +926,8 @@ static struct page *saveable_page(struct zone *zone, unsigned long pfn)
 
 	BUG_ON(PageHighMem(page));
 
-	if (swsusp_page_is_sign_key(page))
+	if (!capable(CAP_COMPROMISE_KERNEL) &&
+	    swsusp_page_is_sign_key(page))
 		return NULL;
 
 	if (swsusp_page_is_forbidden(page) || swsusp_page_is_free(page))
@@ -1056,35 +1058,37 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 #ifdef CONFIG_SNAPSHOT_VERIFICATION
 	struct page *d_page;
 	void *hash_buffer = NULL;
-	struct crypto_shash *tfm;
-	struct shash_desc *desc;
-	u8 *digest;
+	struct crypto_shash *tfm = NULL;
+	struct shash_desc *desc = NULL;
+	u8 *digest = NULL;
 	size_t digest_size, desc_size;
 	struct key *s4_sign_key;
 	struct public_key_signature *pks;
 	int ret;
 
 	ret = -ENOMEM;
-	tfm = crypto_alloc_shash(SNAPSHOT_HASH, 0, 0);
-	if (IS_ERR(tfm)) {
-		pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
-		return PTR_ERR(tfm);
-	}
+	if (!capable(CAP_COMPROMISE_KERNEL)) {
+		tfm = crypto_alloc_shash(SNAPSHOT_HASH, 0, 0);
+		if (IS_ERR(tfm)) {
+			pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
+			return PTR_ERR(tfm);
+		}
 
-	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
-	digest_size = crypto_shash_digestsize(tfm);
-	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
-	if (!digest) {
-		pr_err("digest allocate fail");
-		ret = -ENOMEM;
-		goto error_digest;
+		desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+		digest_size = crypto_shash_digestsize(tfm);
+		digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+		if (!digest) {
+			pr_err("digest allocate fail");
+			ret = -ENOMEM;
+			goto error_digest;
+		}
+		desc = (void *) digest + digest_size;
+		desc->tfm = tfm;
+		desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+		ret = crypto_shash_init(desc);
+		if (ret < 0)
+			goto error_shash;
 	}
-	desc = (void *) digest + digest_size;
-	desc->tfm = tfm;
-	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
-	ret = crypto_shash_init(desc);
-	if (ret < 0)
-		goto error_shash;
 #endif /* CONFIG_SNAPSHOT_VERIFICATION */
 
 	for_each_populated_zone(zone) {
@@ -1106,24 +1110,29 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 		copy_data_page(dst_pfn, pfn);
 
 #ifdef CONFIG_SNAPSHOT_VERIFICATION
-		/* Generate digest */
-		d_page = pfn_to_page(dst_pfn);
-		if (PageHighMem(d_page)) {
-			void *kaddr;
-			kaddr = kmap_atomic(d_page);
-			copy_page(buffer, kaddr);
-			kunmap_atomic(kaddr);
-			hash_buffer = buffer;
-		} else {
-			hash_buffer = page_address(d_page);
+		if (!capable(CAP_COMPROMISE_KERNEL)) {
+			/* Generate digest */
+			d_page = pfn_to_page(dst_pfn);
+			if (PageHighMem(d_page)) {
+				void *kaddr;
+				kaddr = kmap_atomic(d_page);
+				copy_page(buffer, kaddr);
+				kunmap_atomic(kaddr);
+				hash_buffer = buffer;
+			} else {
+				hash_buffer = page_address(d_page);
+			}
+			ret = crypto_shash_update(desc, hash_buffer, PAGE_SIZE);
+			if (ret)
+				goto error_shash;
 		}
-		ret = crypto_shash_update(desc, hash_buffer, PAGE_SIZE);
-		if (ret)
-			goto error_shash;
 #endif
 	}
 
 #ifdef CONFIG_SNAPSHOT_VERIFICATION
+	if (capable(CAP_COMPROMISE_KERNEL))
+		goto skip_sign;
+
 	crypto_shash_final(desc, digest);
 	if (ret)
 		goto error_shash;
@@ -1153,6 +1162,8 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 	kfree(pks);
 	kfree(digest);
 	crypto_free_shash(tfm);
+
+skip_sign:
 #endif /* CONFIG_SNAPSHOT_VERIFICATION */
 
 	return 0;
@@ -2382,9 +2393,11 @@ int snapshot_write_next(struct snapshot_handle *handle)
 		/* Allocate void * array to keep buffer point for generate hash,
 		 * h_buf will freed in snapshot_image_verify().
 		 */
-		h_buf = kmalloc(sizeof(void *) * nr_copy_pages, GFP_KERNEL);
-		if (!h_buf)
-			pr_err("Allocate hash buffer fail!");
+		if (!capable(CAP_COMPROMISE_KERNEL)) {
+			h_buf = kmalloc(sizeof(void *) * nr_copy_pages, GFP_KERNEL);
+			if (!h_buf)
+				pr_err("Allocate hash buffer fail!");
+		}
 #endif
 
 		error = memory_bm_create(&copy_bm, GFP_ATOMIC, PG_ANY);
@@ -2414,7 +2427,7 @@ int snapshot_write_next(struct snapshot_handle *handle)
 			if (IS_ERR(handle->buffer))
 				return PTR_ERR(handle->buffer);
 #ifdef CONFIG_SNAPSHOT_VERIFICATION
-			if (h_buf)
+			if (!capable(CAP_COMPROMISE_KERNEL) && h_buf)
 				*h_buf = handle->buffer;
 #endif
 		}
@@ -2428,7 +2441,7 @@ int snapshot_write_next(struct snapshot_handle *handle)
 		if (handle->buffer != buffer)
 			handle->sync_read = 0;
 #ifdef CONFIG_SNAPSHOT_VERIFICATION
-		if (h_buf)
+		if (!capable(CAP_COMPROMISE_KERNEL) && h_buf)
 			*(h_buf + (handle->cur - nr_meta_pages - 1)) = handle->buffer;
 		/* Keep the buffer of sign key in snapshot */
 		if (pfn == skey_data_buf_pfn)

@@ -15,6 +15,7 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
+#include <linux/efi.h>
 
 #include "power.h"
 
@@ -301,7 +302,15 @@ static ssize_t state_show(struct kobject *kobj, struct kobj_attribute *attr,
 	}
 #endif
 #ifdef CONFIG_HIBERNATION
-	s += sprintf(s, "%s\n", "disk");
+	if (!efi_enabled(EFI_SECURE_BOOT)) {
+		s += sprintf(s, "%s\n", "disk");
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+	} else if (skey_data_available()) {
+		s += sprintf(s, "%s\n", "disk");
+#endif
+	} else {
+		s += sprintf(s, "\n");
+	}
 #else
 	if (s != buf)
 		/* convert the last space to a newline */

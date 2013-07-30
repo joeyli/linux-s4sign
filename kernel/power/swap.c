@@ -1005,7 +1005,7 @@ static int load_image(struct swap_map_handle *handle,
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
 #ifdef CONFIG_SNAPSHOT_VERIFICATION
-		else {
+		else if (!capable(CAP_COMPROMISE_KERNEL)) {
 			ret = snapshot_image_verify();
 			if (ret)
 				pr_info("PM: snapshot signature check FAIL: %d\n", ret);
@@ -1370,7 +1370,7 @@ out_finish:
 			}
 		}
 #ifdef CONFIG_SNAPSHOT_VERIFICATION
-		if (!ret) {
+		if (!ret && !capable(CAP_COMPROMISE_KERNEL)) {
 			ret = snapshot_image_verify();
 			if (ret)
 				pr_info("PM: snapshot signature check FAIL: %d\n", ret);

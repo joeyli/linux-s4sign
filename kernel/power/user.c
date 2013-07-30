@@ -48,6 +48,14 @@ static int snapshot_open(struct inode *inode, struct file *filp)
 	struct snapshot_data *data;
 	int error;
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+	if (!capable(CAP_COMPROMISE_KERNEL) && !wkey_data_available()) {
+#else
+	if (!capable(CAP_COMPROMISE_KERNEL)) {
+#endif
+		return -EPERM;
+	}
+
 	lock_system_sleep();
 
 	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
@@ -255,6 +263,8 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			break;
 		}
 #ifdef CONFIG_SNAPSHOT_VERIFICATION
+		if (capable(CAP_COMPROMISE_KERNEL))
+			goto skip_verify;
 		if (!snapshot_image_verify()) {
 			pr_info("PM: snapshot signature check SUCCESS!\n");
 			snapshot_fill_s4_skey();
@@ -263,6 +273,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
+skip_verify:
 #endif
 		error = hibernation_restore(data->platform_support);
 		break;

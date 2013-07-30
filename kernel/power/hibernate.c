@@ -29,6 +29,7 @@
 #include <linux/ctype.h>
 #include <linux/genhd.h>
 #include <linux/key.h>
+#include <linux/efi.h>
 
 #include "power.h"
 
@@ -632,7 +633,14 @@ static void power_down(void)
 int hibernate(void)
 {
 	int error;
-	int skey_error;
+
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+	if (!capable(CAP_COMPROMISE_KERNEL) && !skey_data_available()) {
+#else
+	if (!capable(CAP_COMPROMISE_KERNEL)) {
+#endif
+		return -EPERM;
+	}
 
 	lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
@@ -799,6 +807,15 @@ static int software_resume(void)
 	if (error)
 		goto Unlock;
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+	if (!capable(CAP_COMPROMISE_KERNEL) && !wkey_data_available()) {
+#else
+	if (!capable(CAP_COMPROMISE_KERNEL)) {
+#endif
+		mutex_unlock(&pm_mutex);
+		return -EPERM;
+	}
+
 	/* The snapshot device should not be opened while we're running */
 	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
 		error = -EBUSY;
@@ -892,6 +909,15 @@ static ssize_t disk_show(struct kobject *kobj, struct kobj_attribute *attr,
 	int i;
 	char *start = buf;
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+	if (efi_enabled(EFI_SECURE_BOOT) && !skey_data_available()) {
+#else
+	if (efi_enabled(EFI_SECURE_BOOT)) {
+#endif
+		buf += sprintf(buf, "[%s]\n", "disabled");
+		return buf-start;
+	}
+
 	for (i = HIBERNATION_FIRST; i <= HIBERNATION_MAX; i++) {
 		if (!hibernation_modes[i])
 			continue;
@@ -925,6 +951,14 @@ static ssize_t disk_store(struct kobject *kobj, struct kobj_attribute *attr,
 	int len;
 	char *p;
 	int mode = HIBERNATION_INVALID;
+
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+	if (!capable(CAP_COMPROMISE_KERNEL) && !skey_data_available()) {
+#else
+	if (!capable(CAP_COMPROMISE_KERNEL)) {
+#endif
+		return -EPERM;
+	}
 
 	p = memchr(buf, '\n', n);
 	len = p ? p - buf : n;
