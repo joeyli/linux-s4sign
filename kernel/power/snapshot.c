@@ -2529,6 +2529,8 @@ static void snapshot_fill_sig_forward_info(int sig_check_ret)
 
 int snapshot_image_verify(void)
 {
+	struct timeval start;
+	struct timeval stop;
 	struct crypto_shash *tfm = NULL
 	struct shash_desc *desc;
 	u8 *digest = NULL;
@@ -2560,6 +2562,8 @@ int snapshot_image_verify(void)
 	desc->tfm = tfm;
 	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 
+	do_gettimeofday(&start);
+
 	ret = crypto_shash_init(desc);
 	if (ret < 0)
 		goto error_shash;
@@ -2579,6 +2583,9 @@ int snapshot_image_verify(void)
 		pr_info("PM: snapshot signature check FAIL: %d\n", ret);
 	else
 		pr_info("PM: snapshot signature check SUCCESS!\n");
+
+	do_gettimeofday(&stop);
+	swsusp_show_speed(&start, &stop, nr_copy_pages, "Verified");
 
 forward_ret:
 	/* forward check result when pass or not enforce verify success */
