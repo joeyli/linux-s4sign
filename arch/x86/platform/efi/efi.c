@@ -704,6 +704,69 @@ static int __init efi_memmap_init(void)
 	return 0;
 }
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+static unsigned long skey_dsize;
+static u64 skey_data_addr;
+static unsigned long skey_err_status;
+
+bool efi_s4_key_available(void)
+{
+	return skey_dsize && skey_data_addr && !skey_err_status;
+}
+
+unsigned long __init efi_copy_skey_data(void *page_addr)
+{
+	void *key_addr;
+
+	if (efi_s4_key_available()) {
+		key_addr = early_ioremap(skey_data_addr, skey_dsize);
+		memcpy(page_addr, key_addr, skey_dsize);
+		early_iounmap(key_addr, skey_dsize);
+	}
+
+	return skey_dsize;
+}
+
+void __init efi_erase_s4_skey_data(void)
+{
+	void *key_addr;
+
+	key_addr = early_ioremap(skey_data_addr, skey_dsize);
+	memset(key_addr, 0, skey_dsize);
+	early_iounmap(key_addr, skey_dsize);
+	memblock_free(skey_data_addr, skey_dsize);
+	skey_data_addr = 0;
+	skey_dsize = 0;
+}
+
+static void __init efi_reserve_s4_skey_data(void)
+{
+	u64 pa_data;
+	struct setup_data *data;
+	struct efi_s4_key *s4key;
+
+	skey_err_status = 0;
+	pa_data = boot_params.hdr.setup_data;
+	while (pa_data) {
+		data = early_ioremap(pa_data, sizeof(*s4key));
+		if (data->type == SETUP_S4_KEY) {
+			s4key = (struct efi_s4_key *)data;
+			if (!s4key->err_status) {
+				skey_dsize = s4key->skey_dsize;
+				skey_data_addr = (u64) s4key->skey_data_addr;
+				memblock_reserve(skey_data_addr, skey_dsize);
+			} else {
+				skey_err_status = s4key->err_status;
+				pr_err("Get S4 sign key from EFI fail: 0x%lx\n",
+					skey_err_status);
+			}
+		}
+		pa_data = data->next;
+		early_iounmap(data, sizeof(*s4key));
+	}
+}
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
+
 void __init efi_init(void)
 {
 	efi_char16_t *c16;
@@ -728,6 +791,11 @@ void __init efi_init(void)
 		return;
 
 	set_bit(EFI_SYSTEM_TABLES, &x86_efi_facility);
+
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+	/* keep s4 key from setup_data */
+	efi_reserve_s4_skey_data();
+#endif
 
 	/*
 	 * Show what we know for posterity

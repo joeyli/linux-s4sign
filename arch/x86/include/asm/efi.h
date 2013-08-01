@@ -102,6 +102,15 @@ extern void efi_call_phys_epilog(void);
 extern void efi_unmap_memmap(void);
 extern void efi_memory_uc(u64 addr, unsigned long size);
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+struct efi_s4_key {
+	struct setup_data data;
+	unsigned long err_status;
+	unsigned long skey_dsize;
+	void *skey_data_addr;
+};
+#endif
+
 #ifdef CONFIG_EFI
 
 static inline bool efi_is_native(void)

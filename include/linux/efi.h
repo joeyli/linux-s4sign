@@ -389,6 +389,18 @@ typedef efi_status_t efi_query_variable_store_t(u32 attributes, unsigned long si
 #define EFI_FILE_SYSTEM_GUID \
     EFI_GUID(  0x964e5b22, 0x6459, 0x11d2, 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b )
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+#define EFI_HIBERNATE_GUID \
+    EFI_GUID(0xfe141863, 0xc070, 0x478e, 0xb8, 0xa3, 0x87, 0x8a, 0x5d, 0xc9, 0xef, 0x21)
+/*
+ * The UEFI variable names of the key-pair to verify S4 snapshot image:
+ * S4SignKey-EFI_HIBERNATE_GUID: The private key is used to sign snapshot
+ * S4WakeKey-EFI_HIBERNATE_GUID: The public key is used to verify snapshot
+ */
+#define EFI_S4_SIGN_KEY_NAME    ((efi_char16_t [10]) { 'S', '4', 'S', 'i', 'g', 'n', 'K', 'e', 'y', 0 })
+#define EFI_S4_WAKE_KEY_NAME    ((efi_char16_t [10]) { 'S', '4', 'W', 'a', 'k', 'e', 'K', 'e', 'y', 0 })
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
+
 typedef struct {
 	efi_guid_t guid;
 	u64 table;
@@ -577,6 +589,11 @@ extern void efi_enter_virtual_mode (void);	/* switch EFI to virtual mode, if pos
 extern void efi_late_init(void);
 extern void efi_free_boot_services(void);
 extern efi_status_t efi_query_variable_store(u32 attributes, unsigned long size);
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+extern bool efi_s4_key_available(void);
+extern unsigned long efi_copy_skey_data(void *page_addr);
+extern void efi_erase_s4_skey_data(void);
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
 #else
 static inline void efi_late_init(void) {}
 static inline void efi_free_boot_services(void) {}
