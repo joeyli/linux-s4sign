@@ -18,6 +18,7 @@
 #include <keys/asymmetric-type.h>
 
 struct public_key_signature;
+enum pkey_hash_algo;
 
 /*
  * Keys of this type declare a subtype that indicates the handlers and
@@ -37,6 +38,11 @@ struct asymmetric_key_subtype {
 	/* Verify the signature on a key of this subtype (optional) */
 	int (*verify_signature)(const struct key *key,
 				const struct public_key_signature *sig);
+
+	/* Generate the signature by key of this subtype (optional) */
+	struct public_key_signature* (*generate_signature)
+		(const struct key *key, u8 *M, enum pkey_hash_algo hash_algo,
+		 const bool hash);
 };
 
 /**

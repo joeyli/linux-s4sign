@@ -79,6 +79,29 @@ struct public_key {
 	};
 };
 
+struct private_key {
+	const struct private_key_algorithm *algo;
+	u8      capabilities;
+	enum pkey_id_type id_type:8;
+	union {
+		MPI     mpi[5];
+		struct {
+			MPI     p;      /* DSA prime */
+			MPI     q;      /* DSA group order */
+			MPI     g;      /* DSA group generator */
+			MPI     y;      /* DSA public-key value = g^x mod p */
+			MPI     x;      /* DSA secret exponent (if present) */
+		} dsa;
+		struct {
+			MPI     n;      /* RSA public modulus */
+			MPI     e;      /* RSA public encryption exponent */
+			MPI     d;      /* RSA secret encryption exponent (if present) */
+			MPI     p;      /* RSA secret prime (if present) */
+			MPI     q;      /* RSA secret prime (if present) */
+		} rsa;
+	};
+};
+
 extern void public_key_destroy(void *payload);
 
 /*
@@ -104,5 +127,7 @@ struct public_key_signature {
 struct key;
 extern int verify_signature(const struct key *key,
 			    const struct public_key_signature *sig);
+extern struct public_key_signature *generate_signature(const struct key *key,
+			u8 *M, enum pkey_hash_algo hash_algo, const bool hash);
 
 #endif /* _LINUX_PUBLIC_KEY_H */

@@ -47,3 +47,31 @@ int verify_signature(const struct key *key,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(verify_signature);
+
+/**
+ * generate_signature - Initiate the use of an asymmetric key to generate a signature
+ * @key: The asymmetric key to generate against
+ * @M: The message to be signed, or a hash result. Dependent on the hash parameter
+ * @hash_algo: The hash algorithm to generate digest
+ * @hash: true means M is a original mesagse, false means M is a hash result
+ *
+ * Returns public_key-signature if successful or else an error.
+ */
+struct public_key_signature *generate_signature(const struct key *key, u8 *M,
+		enum pkey_hash_algo hash_algo, const bool hash)
+{
+	const struct asymmetric_key_subtype *subtype;
+
+	pr_info("==>%s()\n", __func__);
+
+	if (key->type != &key_type_asymmetric)
+		return ERR_PTR(-EINVAL);
+	subtype = asymmetric_key_subtype(key);
+	if (!subtype || !key->payload.data)
+		return ERR_PTR(-EINVAL);
+	if (!subtype->generate_signature)
+		return ERR_PTR(-ENOTSUPP);
+
+	return subtype->generate_signature(key, M, hash_algo, hash);
+}
+EXPORT_SYMBOL_GPL(generate_signature);
