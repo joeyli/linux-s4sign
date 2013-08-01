@@ -66,8 +66,17 @@ config HIBERNATION
 
 	  For more information take a look at <file:Documentation/power/swsusp.txt>.
 
-config ARCH_SAVE_PAGE_KEYS
-	bool
+config SNAPSHOT_VERIFICATION
+	bool "Hibernate snapshot verification"
+	depends on HIBERNATION
+	depends on EFI_STUB
+	depends on X86
+	select PKCS8_PRIVATE_KEY_INFO_PARSER
+	help
+	  This option provides support for generate anad verify the signautre by
+	  RSA key-pair against hibernate snapshot image. Current mechanism
+	  dependent on UEFI environment. EFI bootloader should generate the
+	  key-pair.
 
 config PM_STD_PARTITION
 	string "Default resume partition"
@@ -90,6 +99,9 @@ config PM_STD_PARTITION
 	  Note there is currently not a way to specify which device to save the
 	  suspended image to. It will simply pick the first available swap 
 	  device.
+
+config ARCH_SAVE_PAGE_KEYS
+	bool
 
 config PM_SLEEP
 	def_bool y

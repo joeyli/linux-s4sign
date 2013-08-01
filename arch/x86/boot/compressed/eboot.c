@@ -369,6 +369,96 @@ free_handle:
 	return status;
 }
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+static efi_status_t setup_s4_keys(struct boot_params *params)
+{
+	struct setup_data *data;
+	unsigned long datasize;
+	u32 attr;
+	struct efi_s4_key *s4key;
+	efi_status_t status;
+
+	data = (struct setup_data *)params->hdr.setup_data;
+
+	while (data && data->next)
+		data = (struct setup_data *)(unsigned long)data->next;
+
+	status = efi_call_phys3(sys_table->boottime->allocate_pool,
+				EFI_LOADER_DATA, sizeof(*s4key), &s4key);
+	if (status != EFI_SUCCESS) {
+		efi_printk("Failed to alloc memory for efi_s4_key\n");
+		goto error_setup;
+	}
+
+	s4key->data.type = SETUP_S4_KEY;
+	s4key->data.len = sizeof(struct efi_s4_key) -
+		sizeof(struct setup_data);
+	s4key->data.next = 0;
+	s4key->skey_dsize = 0;
+	s4key->err_status = 0;
+
+	if (data)
+		data->next = (unsigned long)s4key;
+	else
+		params->hdr.setup_data = (unsigned long)s4key;
+
+	/* obtain the size of key data */
+	datasize = 0;
+	status = efi_call_phys5(sys_table->runtime->get_variable,
+				EFI_S4_SIGN_KEY_NAME, &EFI_HIBERNATE_GUID,
+				NULL, &datasize, NULL);
+	if (status != EFI_BUFFER_TOO_SMALL) {
+		efi_printk("Couldn't get S4 key data size\n");
+		goto error_size;
+	}
+	if (datasize > SKEY_DBUF_MAX_SIZE) {
+		efi_printk("The size of S4 sign key is too large\n");
+		status = EFI_UNSUPPORTED;
+		goto error_size;
+	}
+
+	s4key->skey_dsize = datasize;
+	status = efi_call_phys3(sys_table->boottime->allocate_pool,
+				EFI_LOADER_DATA, s4key->skey_dsize,
+				&s4key->skey_data_addr);
+	if (status != EFI_SUCCESS) {
+		efi_printk("Failed to alloc page for S4 key data\n");
+		goto error_s4key;
+	}
+
+	attr = 0;
+	memset((void *)s4key->skey_data_addr, 0, s4key->skey_dsize);
+	status = efi_call_phys5(sys_table->runtime->get_variable,
+				EFI_S4_SIGN_KEY_NAME, &EFI_HIBERNATE_GUID, &attr,
+				&(s4key->skey_dsize), s4key->skey_data_addr);
+	if (status) {
+		efi_printk("Couldn't get S4 key data\n");
+		goto error_gets4key;
+	}
+	if (attr & EFI_VARIABLE_RUNTIME_ACCESS) {
+		efi_printk("S4 sign key can not be a runtime variable\n");
+		memset((void *)s4key->skey_data_addr, 0, s4key->skey_dsize);
+		status = EFI_UNSUPPORTED;
+		goto error_gets4key;
+	}
+
+	return 0;
+
+error_gets4key:
+	efi_call_phys1(sys_table->boottime->free_pool, s4key->skey_data_addr);
+error_s4key:
+error_size:
+	s4key->err_status = status;
+error_setup:
+	return status;
+}
+#else
+static inline efi_status_t setup_s4_keys(struct boot_params *params)
+{
+	return 0;
+}
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
+
 /*
  * See if we have Graphics Output Protocol
  */
@@ -1208,6 +1298,8 @@ struct boot_params *efi_main(void *handle, efi_system_table_t *_table,
 	setup_graphics(boot_params);
 
 	setup_efi_pci(boot_params);
+
+	setup_s4_keys(boot_params);
 
 	status = efi_call_phys3(sys_table->boottime->allocate_pool,
 				EFI_LOADER_DATA, sizeof(*gdt),

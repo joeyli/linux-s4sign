@@ -160,6 +160,36 @@ extern void swsusp_close(fmode_t);
 extern int swsusp_unmark(void);
 #endif
 
+/* kernel/power/hibernate_key.c */
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+extern bool skey_data_available(void);
+extern struct key *get_sign_key(void);
+extern void erase_skey_data(void);
+extern void destroy_sign_key(struct key *key);
+extern int wkey_data_available(void);
+extern struct key *get_wake_key(void);
+extern size_t get_key_length(const struct key *key);
+
+extern void restore_sig_forward_info(void);
+extern bool swsusp_page_is_sign_key(struct page *page);
+extern unsigned long get_sig_forward_info_pfn(void);
+extern void fill_sig_forward_info(void *page_addr, int sig_check_ret);
+#else
+static inline bool skey_data_available(void)
+{
+	return false;
+}
+static inline void restore_sig_forward_info(void) {}
+static inline bool swsusp_page_is_sign_key(struct page *page)
+{
+	return false;
+}
+static inline unsigned long get_sig_forward_info_pfn(void)
+{
+	return 0;
+}
+#endif /* !CONFIG_SNAPSHOT_VERIFICATION */
+
 /* kernel/power/block_io.c */
 extern struct block_device *hib_resume_bdev;
 
