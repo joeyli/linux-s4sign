@@ -228,6 +228,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		if (!data->frozen || data->ready)
 			break;
 		pm_restore_gfp_mask();
+		restore_sign_key_data();
 		thaw_processes();
 		data->frozen = 0;
 		break;
@@ -250,6 +251,14 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		snapshot_write_finalize(&data->handle);
 		if (data->mode != O_WRONLY || !data->frozen ||
 		    !snapshot_image_loaded(&data->handle)) {
+			error = -EPERM;
+			break;
+		}
+		if (!snapshot_image_verify()) {
+			pr_info("PM: snapshot signature check SUCCESS!\n");
+			snapshot_fill_s4_skey();
+		} else {
+			pr_info("PM: snapshot signature check FAIL!\n");
 			error = -EPERM;
 			break;
 		}
