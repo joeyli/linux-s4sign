@@ -196,6 +196,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 	struct snapshot_data *data;
 	loff_t size;
 	sector_t offset;
+	int skey_error = 0;
 
 	if (_IOC_TYPE(cmd) != SNAPSHOT_IOC_MAGIC)
 		return -ENOTTY;
@@ -228,6 +229,9 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		if (!data->frozen || data->ready)
 			break;
 		pm_restore_gfp_mask();
+		skey_error = load_sign_key_data();
+		if (skey_error)
+			pr_err("Load private key fail: %d", skey_error);
 		thaw_processes();
 		data->frozen = 0;
 		break;
@@ -250,6 +254,13 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		snapshot_write_finalize(&data->handle);
 		if (data->mode != O_WRONLY || !data->frozen ||
 		    !snapshot_image_loaded(&data->handle)) {
+			error = -EPERM;
+			break;
+		}
+		if (!snapshot_image_verify())
+			pr_info("PM: snapshot signature check SUCCESS!\n");
+		else {
+			pr_info("PM: snapshot signature check FAIL!\n");
 			error = -EPERM;
 			break;
 		}
