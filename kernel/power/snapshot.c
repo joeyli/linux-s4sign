@@ -27,6 +27,9 @@
 #include <linux/highmem.h>
 #include <linux/list.h>
 #include <linux/slab.h>
+#include <crypto/hash.h>
+#include <crypto/public_key.h>
+#include <keys/asymmetric-type.h>
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -1031,6 +1034,126 @@ static inline void copy_data_page(unsigned long dst_pfn, unsigned long src_pfn)
 }
 #endif /* CONFIG_HIGHMEM */
 
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+#define SNAPSHOT_HASH "sha256"
+#endif
+
+/*
+ * Signature of snapshot for check.
+ */
+static u8 signature[SIG_LEN];
+
+/*
+ * Keep the pfn of forward information buffer from resume target. We write
+ * the next time sign key to this page in snapshot image before restore.
+ */
+unsigned long sig_forward_info_pfn;
+
+void **handle_buffers;
+void *sig_forward_info_buf;
+
+static int
+swsusp_generate_signature(struct memory_bitmap *copy_bm, unsigned int nr_pages)
+{
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+	unsigned long pfn;
+	struct page *d_page;
+	void *hash_buffer = NULL;
+	struct crypto_shash *tfm;
+	struct shash_desc *desc;
+	u8 *digest;
+	size_t digest_size, desc_size;
+	struct key *s4_sign_key;
+	struct public_key_signature *pks;
+	int ret, i;
+
+	ret = -ENOMEM;
+	tfm = crypto_alloc_shash(SNAPSHOT_HASH, 0, 0);
+	if (IS_ERR(tfm)) {
+		pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
+		return PTR_ERR(tfm);
+	}
+
+	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+	digest_size = crypto_shash_digestsize(tfm);
+	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+	if (!digest) {
+		pr_err("digest allocate fail");
+		ret = -ENOMEM;
+		goto error_digest;
+	}
+	desc = (void *) digest + digest_size;
+	desc->tfm = tfm;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+	ret = crypto_shash_init(desc);
+	if (ret < 0)
+		goto error_shash;
+
+	memory_bm_position_reset(copy_bm);
+	for (i = 0; i < nr_pages; i++) {
+		pfn = memory_bm_next_pfn(copy_bm);
+
+		/* Generate digest */
+		d_page = pfn_to_page(pfn);
+		if (PageHighMem(d_page)) {
+			void *kaddr;
+			kaddr = kmap_atomic(d_page);
+			copy_page(buffer, kaddr);
+			kunmap_atomic(kaddr);
+			hash_buffer = buffer;
+		} else {
+			hash_buffer = page_address(d_page);
+		}
+		ret = crypto_shash_update(desc, hash_buffer, PAGE_SIZE);
+		if (ret)
+			goto error_shash;
+	}
+
+	crypto_shash_final(desc, digest);
+	if (ret)
+		goto error_shash;
+
+	/* Generate signature by private key */
+	s4_sign_key = get_sign_key();
+	if (!s4_sign_key || IS_ERR(s4_sign_key)) {
+		pr_err("Get S4 sign key fail: %ld\n", PTR_ERR(s4_sign_key));
+		ret = PTR_ERR(s4_sign_key);
+		goto error_key;
+	}
+
+	pks = generate_signature(s4_sign_key, digest, PKEY_HASH_SHA256, false);
+	if (IS_ERR(pks)) {
+		pr_err("Generate signature fail: %lx", PTR_ERR(pks));
+		ret = PTR_ERR(pks);
+		goto error_sign;
+	} else
+		memcpy(signature, pks->S, pks->k);
+
+	destroy_sign_key(s4_sign_key);
+
+	if (pks && pks->digest)
+		kfree(pks->digest);
+	if (pks && pks->rsa.s)
+		mpi_free(pks->rsa.s);
+	kfree(pks);
+	kfree(digest);
+	crypto_free_shash(tfm);
+
+	return 0;
+
+error_sign:
+	destroy_sign_key(s4_sign_key);
+error_key:
+error_shash:
+	kfree(digest);
+error_digest:
+	crypto_free_shash(tfm);
+	return ret;
+#else
+	return 0;
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
+}
+
 static void
 copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 {
@@ -1580,6 +1703,7 @@ swsusp_alloc(struct memory_bitmap *orig_bm, struct memory_bitmap *copy_bm,
 asmlinkage int swsusp_save(void)
 {
 	unsigned int nr_pages, nr_highmem;
+	int ret;
 
 	printk(KERN_INFO "PM: Creating hibernation image:\n");
 
@@ -1613,6 +1737,14 @@ asmlinkage int swsusp_save(void)
 	nr_pages += nr_highmem;
 	nr_copy_pages = nr_pages;
 	nr_meta_pages = DIV_ROUND_UP(nr_pages * sizeof(long), PAGE_SIZE);
+
+	if (skey_data_available()) {
+		ret = swsusp_generate_signature(&copy_bm, nr_pages);
+		if (ret)
+			return ret;
+	} else
+		/* set zero signature if skey doesn't exist */
+		memset(signature, 0, SIG_LEN);
 
 	printk(KERN_INFO "PM: Hibernation image created (%d pages copied)\n",
 		nr_pages);
@@ -1657,6 +1789,8 @@ static int init_header(struct swsusp_info *info)
 	info->pages = snapshot_get_image_size();
 	info->size = info->pages;
 	info->size <<= PAGE_SHIFT;
+	info->sig_forward_info_pfn = get_sig_forward_info_pfn();
+	memcpy(info->signature, signature, SIG_LEN);
 	return init_header_complete(info);
 }
 
@@ -1819,6 +1953,8 @@ load_header(struct swsusp_info *info)
 	if (!error) {
 		nr_copy_pages = info->image_pages;
 		nr_meta_pages = info->pages - info->image_pages - 1;
+		sig_forward_info_pfn = info->sig_forward_info_pfn;
+		memcpy(signature, info->signature, SIG_LEN);
 	}
 	return error;
 }
@@ -2159,7 +2295,8 @@ prepare_image(struct memory_bitmap *new_bm, struct memory_bitmap *bm)
  *	set for its caller to write to.
  */
 
-static void *get_buffer(struct memory_bitmap *bm, struct chain_allocator *ca)
+static void *get_buffer(struct memory_bitmap *bm, struct chain_allocator *ca,
+		unsigned long *_pfn)
 {
 	struct pbe *pbe;
 	struct page *page;
@@ -2167,6 +2304,9 @@ static void *get_buffer(struct memory_bitmap *bm, struct chain_allocator *ca)
 
 	if (pfn == BM_END_OF_MAP)
 		return ERR_PTR(-EFAULT);
+
+	if (_pfn)
+		*_pfn = pfn;
 
 	page = pfn_to_page(pfn);
 	if (PageHighMem(page))
@@ -2214,6 +2354,7 @@ static void *get_buffer(struct memory_bitmap *bm, struct chain_allocator *ca)
 int snapshot_write_next(struct snapshot_handle *handle)
 {
 	static struct chain_allocator ca;
+	unsigned long pfn;
 	int error = 0;
 
 	/* Check if we have already loaded the entire image */
@@ -2235,6 +2376,15 @@ int snapshot_write_next(struct snapshot_handle *handle)
 		error = load_header(buffer);
 		if (error)
 			return error;
+
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+		/* Allocate void * array to keep buffer point for generate hash,
+		 * handle_buffers will freed in snapshot_image_verify().
+		 */
+		handle_buffers = kmalloc(sizeof(void *) * nr_copy_pages, GFP_KERNEL);
+		if (!handle_buffers)
+			pr_err("Allocate hash buffer fail!\n");
+#endif
 
 		error = memory_bm_create(&copy_bm, GFP_ATOMIC, PG_ANY);
 		if (error)
@@ -2258,20 +2408,31 @@ int snapshot_write_next(struct snapshot_handle *handle)
 			chain_init(&ca, GFP_ATOMIC, PG_SAFE);
 			memory_bm_position_reset(&orig_bm);
 			restore_pblist = NULL;
-			handle->buffer = get_buffer(&orig_bm, &ca);
+			handle->buffer = get_buffer(&orig_bm, &ca, &pfn);
 			handle->sync_read = 0;
 			if (IS_ERR(handle->buffer))
 				return PTR_ERR(handle->buffer);
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+			if (handle_buffers)
+				*handle_buffers = handle->buffer;
+#endif
 		}
 	} else {
 		copy_last_highmem_page();
 		/* Restore page key for data page (s390 only). */
 		page_key_write(handle->buffer);
-		handle->buffer = get_buffer(&orig_bm, &ca);
+		handle->buffer = get_buffer(&orig_bm, &ca, &pfn);
 		if (IS_ERR(handle->buffer))
 			return PTR_ERR(handle->buffer);
 		if (handle->buffer != buffer)
 			handle->sync_read = 0;
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+		if (handle_buffers)
+			*(handle_buffers + (handle->cur - nr_meta_pages - 1)) = handle->buffer;
+		/* Keep the buffer of sign key in snapshot */
+		if (pfn == sig_forward_info_pfn)
+			sig_forward_info_buf = handle->buffer;
+#endif
 	}
 	handle->cur++;
 	return PAGE_SIZE;
@@ -2303,6 +2464,127 @@ int snapshot_image_loaded(struct snapshot_handle *handle)
 	return !(!nr_copy_pages || !last_highmem_page_copied() ||
 			handle->cur <= nr_meta_pages + nr_copy_pages);
 }
+
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+int snapshot_verify_signature(u8 *digest, size_t digest_size)
+{
+	struct key *s4_wake_key;
+	struct public_key_signature *pks;
+	int ret;
+	MPI mpi;
+
+	/* load public key */
+	s4_wake_key = get_wake_key();
+	if (!s4_wake_key || IS_ERR(s4_wake_key)) {
+		pr_err("PM: Get S4 wake key fail: %ld\n", PTR_ERR(s4_wake_key));
+		return PTR_ERR(s4_wake_key);
+	}
+
+	pks = kzalloc(digest_size + sizeof(*pks), GFP_KERNEL);
+	if (!pks) {
+		pr_err("PM: Allocate public key signature fail!");
+		return -ENOMEM;
+	}
+	pks->pkey_hash_algo = PKEY_HASH_SHA256;
+	pks->digest = digest;
+	pks->digest_size = digest_size;
+
+	mpi = mpi_read_raw_data(signature, get_key_length(s4_wake_key));
+	if (!mpi) {
+		pr_err("PM: mpi_read_raw_data fail!\n");
+		ret = -ENOMEM;
+		goto error_mpi;
+	}
+	pks->mpi[0] = mpi;
+	pks->nr_mpi = 1;
+
+	/* RSA signature check */
+	ret = verify_signature(s4_wake_key, pks);
+	if (ret)
+		pr_err("snapshot S4 signature verification fail: %d\n", ret);
+
+	if (pks->rsa.s)
+		mpi_free(pks->rsa.s);
+error_mpi:
+	kfree(pks);
+	return ret;
+}
+
+static void snapshot_fill_sig_forward_info(int sig_check_ret)
+{
+	if (!sig_forward_info_buf)
+		return;
+
+	/* Fill new s4 sign key to snapshot in memory */
+	fill_sig_forward_info(sig_forward_info_buf, sig_check_ret);
+	/* clean skey page data */
+	erase_skey_data();
+}
+
+int snapshot_image_verify(void)
+{
+	struct crypto_shash *tfm = NULL
+	struct shash_desc *desc;
+	u8 *digest = NULL;
+	size_t digest_size, desc_size;
+	int ret, i;
+
+	if (!handle_buffers)
+		return 0;
+
+	ret = wkey_data_available();
+	if (ret)
+		goto forward_ret;
+
+	tfm = crypto_alloc_shash(SNAPSHOT_HASH, 0, 0);
+	if (IS_ERR(tfm)) {
+		pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
+		return PTR_ERR(tfm);
+	}
+
+	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+	digest_size = crypto_shash_digestsize(tfm);
+	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+	if (!digest) {
+		pr_err("digest allocate fail");
+		ret = -ENOMEM;
+		goto error_digest;
+	}
+	desc = (void *) digest + digest_size;
+	desc->tfm = tfm;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+
+	ret = crypto_shash_init(desc);
+	if (ret < 0)
+		goto error_shash;
+
+	for (i = 0; i < nr_copy_pages; i++) {
+		ret = crypto_shash_update(desc, *(handle_buffers + i), PAGE_SIZE);
+		if (ret)
+			goto error_shash;
+	}
+
+	ret = crypto_shash_final(desc, digest);
+	if (ret)
+		goto error_shash;
+
+	ret = snapshot_verify_signature(digest, digest_size);
+	if (ret)
+		pr_info("PM: snapshot signature check FAIL: %d\n", ret);
+	else
+		pr_info("PM: snapshot signature check SUCCESS!\n");
+
+forward_ret:
+	snapshot_fill_sig_forward_info(ret);
+error_shash:
+	kfree(handle_buffers);
+	kfree(digest);
+error_digest:
+	if (tfm)
+		crypto_free_shash(tfm);
+	return ret;
+}
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
 
 #ifdef CONFIG_HIGHMEM
 /* Assumes that @buf is ready and points to a "safe" page */

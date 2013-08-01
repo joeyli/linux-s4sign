@@ -228,6 +228,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		if (!data->frozen || data->ready)
 			break;
 		pm_restore_gfp_mask();
+		restore_sig_forward_info();
 		thaw_processes();
 		data->frozen = 0;
 		break;
@@ -250,6 +251,10 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		snapshot_write_finalize(&data->handle);
 		if (data->mode != O_WRONLY || !data->frozen ||
 		    !snapshot_image_loaded(&data->handle)) {
+			error = -EPERM;
+			break;
+		}
+		if (snapshot_image_verify()) {
 			error = -EPERM;
 			break;
 		}
