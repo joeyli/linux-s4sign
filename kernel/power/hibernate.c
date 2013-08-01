@@ -28,6 +28,7 @@
 #include <linux/syscore_ops.h>
 #include <linux/ctype.h>
 #include <linux/genhd.h>
+#include <linux/key.h>
 
 #include "power.h"
 
@@ -631,6 +632,7 @@ static void power_down(void)
 int hibernate(void)
 {
 	int error;
+	int skey_error;
 
 	lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
@@ -680,6 +682,9 @@ int hibernate(void)
 		pm_restore_gfp_mask();
 	} else {
 		pr_debug("PM: Image restored successfully.\n");
+		skey_error = load_sign_key_data();
+		if (skey_error)
+			pr_err("Load S4 sign key fail: %d", skey_error);
 	}
 
  Thaw:
