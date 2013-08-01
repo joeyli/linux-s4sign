@@ -160,6 +160,28 @@ extern void swsusp_close(fmode_t);
 extern int swsusp_unmark(void);
 #endif
 
+/* kernel/power/hibernate_key.c */
+extern struct key *get_sign_key(void);
+extern bool sign_key_data_loaded(void);
+extern void destroy_sign_key(struct key *key);
+extern int find_wake_key_data(void);
+extern struct key *load_wake_key(void);
+extern size_t get_key_length(const struct key *key);
+
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+extern int load_sign_key_data(void);
+extern bool swsusp_page_is_sign_key(struct page *page);
+#else /* !CONFIG_SUSPEND */
+static inline int load_sign_key_data(void)
+{
+	return 0;
+}
+static inline bool swsusp_page_is_sign_key(struct page *page)
+{
+	return false;
+}
+#endif /* !CONFIG_SNAPSHOT_VERIFICATION */
+
 /* kernel/power/block_io.c */
 extern struct block_device *hib_resume_bdev;
 
