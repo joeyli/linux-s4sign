@@ -14,6 +14,7 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include "public_key.h"
+#include "private_key.h"
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("RSA Public Key Algorithm");
@@ -267,6 +268,18 @@ error:
 	return ret;
 }
 
+/*
+ * Perform the generation step [RFC3447 sec 8.2.1].
+ */
+static struct public_key_signature *RSA_generate_signature(
+		const struct private_key *key, u8 *M,
+		enum pkey_hash_algo hash_algo, const bool hash)
+{
+	pr_info("RSA_generate_signature start\n");
+
+	return 0;
+}
+
 const struct public_key_algorithm RSA_public_key_algorithm = {
 	.name		= "RSA",
 	.n_pub_mpi	= 2,
@@ -275,3 +288,12 @@ const struct public_key_algorithm RSA_public_key_algorithm = {
 	.verify_signature = RSA_verify_signature,
 };
 EXPORT_SYMBOL_GPL(RSA_public_key_algorithm);
+
+const struct private_key_algorithm RSA_private_key_algorithm = {
+	.name           = "RSA",
+	.n_pub_mpi      = 2,
+	.n_sec_mpi      = 3,
+	.n_sig_mpi      = 1,
+	.generate_signature = RSA_generate_signature,
+};
+EXPORT_SYMBOL_GPL(RSA_private_key_algorithm);
