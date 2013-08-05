@@ -78,6 +78,52 @@ config SNAPSHOT_VERIFICATION
 	  dependent on UEFI environment. EFI bootloader should generate the
 	  key-pair.
 
+choice
+	prompt "Which hash algorithm should snapshot be signed with?"
+        depends on SNAPSHOT_VERIFICATION
+        help
+          This determines which sort of hashing algorithm will be used during
+          signature generation of snapshot. This algorithm _must_ be built into
+	  the kernel directly so that signature verification can take place.
+	  It is not possible to load a signed snapshot containing the algorithm
+	  to check the signature on that module.
+
+config SNAPSHOT_SIG_SHA1
+        bool "Sign modules with SHA-1"
+        select CRYPTO_SHA1
+	select CRYPTO_SHA1_SSSE3 if X86_64
+
+config SNAPSHOT_SIG_SHA224
+        bool "Sign modules with SHA-224"
+        select CRYPTO_SHA256
+	select CRYPTO_SHA256_SSSE3 if X86_64
+
+config SNAPSHOT_SIG_SHA256
+        bool "Sign modules with SHA-256"
+        select CRYPTO_SHA256
+	select CRYPTO_SHA256_SSSE3 if X86_64
+
+config SNAPSHOT_SIG_SHA384
+        bool "Sign modules with SHA-384"
+        select CRYPTO_SHA512
+	select CRYPTO_SHA512_SSSE3 if X86_64
+
+config SNAPSHOT_SIG_SHA512
+        bool "Sign modules with SHA-512"
+        select CRYPTO_SHA512
+	select CRYPTO_SHA512_SSSE3 if X86_64
+
+endchoice
+
+config SNAPSHOT_SIG_HASH
+        string
+        depends on SNAPSHOT_VERIFICATION
+        default "sha1" if SNAPSHOT_SIG_SHA1
+        default "sha224" if SNAPSHOT_SIG_SHA224
+        default "sha256" if SNAPSHOT_SIG_SHA256
+        default "sha384" if SNAPSHOT_SIG_SHA384
+        default "sha512" if SNAPSHOT_SIG_SHA512
+
 config PM_STD_PARTITION
 	string "Default resume partition"
 	depends on HIBERNATION
