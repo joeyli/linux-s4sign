@@ -1042,7 +1042,22 @@ static inline void copy_data_page(unsigned long dst_pfn, unsigned long src_pfn)
 }
 #endif /* CONFIG_HIGHMEM */
 
-#define SNAPSHOT_HASH "sha256"
+static const char *snapshot_hash = CONFIG_SNAPSHOT_SIG_HASH;
+
+static int pkey_hash(void)
+{
+	int i, ret;
+
+	ret = -1;
+	for (i = 0; i < PKEY_HASH__LAST; i++) {
+		if (!strcmp(pkey_hash_algo[i], snapshot_hash)) {
+			ret = i;
+			break;
+		}
+	}
+
+	return ret;
+}
 
 /*
  * Signature of snapshot for check.
@@ -1068,7 +1083,7 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 
 	ret = -ENOMEM;
 	if (!capable(CAP_COMPROMISE_KERNEL)) {
-		tfm = crypto_alloc_shash(SNAPSHOT_HASH, 0, 0);
+		tfm = crypto_alloc_shash(snapshot_hash, 0, 0);
 		if (IS_ERR(tfm)) {
 			pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
 			return PTR_ERR(tfm);
@@ -1145,7 +1160,7 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 		goto error_key;
 	}
 
-	pks = generate_signature(s4_sign_key, digest, PKEY_HASH_SHA256, false);
+	pks = generate_signature(s4_sign_key, digest, pkey_hash(), false);
 	if (IS_ERR(pks)) {
 		pr_err("Generate signature fail: %lx", PTR_ERR(pks));
 		ret = PTR_ERR(pks);
@@ -2476,7 +2491,7 @@ int snapshot_verify_signature(u8 *digest, size_t digest_size)
 		pr_err("Allocate public key signature fail!");
 		return -ENOMEM;
 	}
-	pks->pkey_hash_algo = PKEY_HASH_SHA256;
+	pks->pkey_hash_algo = pkey_hash();
 	pks->digest = digest;
 	pks->digest_size = digest_size;
 
@@ -2524,7 +2539,7 @@ int snapshot_image_verify(void)
 	if (!h_buf)
 		return 0;
 
-	tfm = crypto_alloc_shash(SNAPSHOT_HASH, 0, 0);
+	tfm = crypto_alloc_shash(snapshot_hash, 0, 0);
 	if (IS_ERR(tfm)) {
 		pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
 		return PTR_ERR(tfm);
