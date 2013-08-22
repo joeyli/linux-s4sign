@@ -1769,6 +1769,9 @@ asmlinkage int swsusp_save(void)
 	printk(KERN_INFO "PM: Hibernation image created (%d pages copied)\n",
 		nr_pages);
 
+	/* set regenerate key flag */
+	set_key_regen_flag();
+
 	return 0;
 }
 

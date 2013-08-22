@@ -7,6 +7,8 @@
 
 #include "power.h"
 
+static efi_char16_t efi_gens4key_name[9] = { 'G', 'e', 'n', 'S', '4', 'K', 'e', 'y', 0 };
+
 static void *skey_data;
 static void *skey_data_buf;
 static unsigned long skey_dsize;
@@ -273,6 +275,42 @@ size_t get_key_length(const struct key *key)
 	return len;
 }
 
+void set_key_regen_flag(void)
+{
+#ifdef CONFIG_SNAPSHOT_REGEN_KEYS
+	unsigned long datasize;
+	u8 gens4key;
+	efi_status_t status;
+
+	/* existing flag may set by userland, respect but not overwrite it */
+	datasize = 0;
+	status = efi.get_variable(efi_gens4key_name, &EFI_HIBERNATE_GUID,
+				  NULL, &datasize, NULL);
+	if (status == EFI_BUFFER_TOO_SMALL)
+		return;
+
+	/* set flag of key-pair regeneration */
+	gens4key = 1;
+	status = efi.set_variable(efi_gens4key_name, &EFI_HIBERNATE_GUID,
+				  EFI_VARIABLE_NON_VOLATILE |
+				  EFI_VARIABLE_BOOTSERVICE_ACCESS |
+				  EFI_VARIABLE_RUNTIME_ACCESS,
+				  1, (void *)&gens4key);
+	if (status)
+		pr_err("PM: Set GenS4Key flag fail: 0x%lx\n", status);
+#endif
+}
+
+static void clean_key_regen_flag(void)
+{
+	/* clean flag of key-pair regeneration */
+	efi.set_variable(efi_gens4key_name, &EFI_HIBERNATE_GUID,
+			 EFI_VARIABLE_NON_VOLATILE |
+			 EFI_VARIABLE_BOOTSERVICE_ACCESS |
+			 EFI_VARIABLE_RUNTIME_ACCESS,
+			 0, NULL);
+}
+
 static int __init init_sign_key_data(void)
 {
 	skey_data = (void *)get_zeroed_page(GFP_KERNEL);
@@ -283,6 +321,7 @@ static int __init init_sign_key_data(void)
 		efi_erase_s4_skey_data();
 		pr_info("PM: Load s4 sign key from EFI\n");
 	}
+	clean_key_regen_flag();
 
 	return 0;
 }

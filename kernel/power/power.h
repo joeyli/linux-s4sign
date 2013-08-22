@@ -181,6 +181,7 @@ extern void restore_sign_key_data(void);
 extern bool swsusp_page_is_sign_key(struct page *page);
 extern unsigned long get_skey_data_buf_pfn(void);
 extern void clone_skey_data(void *page_addr);
+extern void set_key_regen_flag(void);
 #else /* !CONFIG_SUSPEND */
 static inline void restore_sign_key_data(void) {}
 static inline bool swsusp_page_is_sign_key(struct page *page)
@@ -191,6 +192,7 @@ static inline unsigned long get_skey_data_buf_pfn(void)
 {
 	return 0;
 }
+static inline void set_key_regen_flag(void) {}
 #endif /* !CONFIG_SNAPSHOT_VERIFICATION */
 
 /* kernel/power/block_io.c */
