@@ -323,6 +323,8 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
+		/* set regenerate S4 key flag */
+		set_key_regen_flag();
 		/*
 		 * Tasks are frozen and the notifiers have been called with
 		 * PM_HIBERNATION_PREPARE
@@ -336,8 +338,10 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		break;
 
 	case SNAPSHOT_POWER_OFF:
-		if (data->platform_support)
+		if (data->platform_support) {
+			set_key_regen_flag();
 			error = hibernation_platform_enter();
+		}
 		break;
 
 	case SNAPSHOT_SET_SWAP_AREA:

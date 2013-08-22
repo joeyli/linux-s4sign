@@ -14,6 +14,8 @@ struct forward_info {
 	unsigned char                   skey_data_buf[SKEY_DBUF_MAX_SIZE];
 };
 
+static efi_char16_t efi_gens4key_name[9] = { 'G', 'e', 'n', 'S', '4', 'K', 'e', 'y', 0 };
+
 static void *skey_data;
 static void *forward_info_buf;
 static unsigned long skey_dsize;
@@ -301,6 +303,70 @@ bool sig_enforced(void)
 	return sig_enforce;
 }
 
+int set_key_regen_flag(void)
+{
+#ifdef CONFIG_SNAPSHOT_REGEN_KEYS
+	struct efivar_entry *entry;
+	unsigned long datasize;
+	u8 gens4key;
+	int ret;
+
+	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return -ENOMEM;
+
+	memcpy(entry->var.VariableName, efi_gens4key_name, sizeof(efi_gens4key_name));
+	memcpy(&(entry->var.VendorGuid), &EFI_HIBERNATE_GUID, sizeof(efi_guid_t));
+
+	/* existing flag may set by userland, respect it do not overwrite */
+	datasize = 0;
+	ret = efivar_entry_size(entry, &datasize);
+	if (!ret && datasize > 0) {
+		kfree(entry);
+		return 0;
+	}
+
+	/* set flag of key-pair regeneration */
+	gens4key = 1;
+	ret = efivar_entry_set(entry,
+			       EFI_VARIABLE_NON_VOLATILE |
+			       EFI_VARIABLE_BOOTSERVICE_ACCESS |
+			       EFI_VARIABLE_RUNTIME_ACCESS,
+			       1, (void *)&gens4key, false);
+	if (ret)
+		pr_err("PM: Set GenS4Key flag fail: %d\n", ret);
+
+	kfree(entry);
+
+	return ret;
+#else
+	return 0;
+#endif
+}
+
+static int clean_key_regen_flag(void)
+{
+	struct efivar_entry *entry;
+	int ret;
+
+	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return -ENOMEM;
+
+	memcpy(entry->var.VariableName, efi_gens4key_name, sizeof(efi_gens4key_name));
+	memcpy(&(entry->var.VendorGuid), &EFI_HIBERNATE_GUID, sizeof(efi_guid_t));
+
+	/* clean flag of key-pair regeneration */
+	ret = efivar_entry_set(entry,
+			       EFI_VARIABLE_NON_VOLATILE |
+			       EFI_VARIABLE_BOOTSERVICE_ACCESS |
+			       EFI_VARIABLE_RUNTIME_ACCESS,
+			       0, NULL, false);
+	kfree(entry);
+
+	return ret;
+}
+
 static int __init init_sign_key_data(void)
 {
 	skey_data = (void *)get_zeroed_page(GFP_KERNEL);
@@ -311,6 +377,7 @@ static int __init init_sign_key_data(void)
 		efi_erase_s4_skey_data();
 		pr_info("PM: Load s4 sign key from EFI\n");
 	}
+	clean_key_regen_flag();
 
 	return 0;
 }

@@ -78,6 +78,21 @@ config SNAPSHOT_VERIFICATION
 	  dependent on UEFI environment. EFI bootloader should generate the
 	  key-pair.
 
+config SNAPSHOT_REGEN_KEYS
+	bool "Regenerate key-pair for each snapshot verification"
+        depends on SNAPSHOT_VERIFICATION
+	help
+	  Enabled this option let kernel notify booloader (e.g. shim) to
+	  regenerate key-pair of snapshot verification for each hibernate.
+	  Linux kernel write an non-volatile runtime EFI variable, the name
+	  is GenS4Key-fe141863-c070-478e-b8a3-878a5dc9ef21, to notify EFI
+	  bootloader regenerate key-pair for next hibernate cycle.
+
+	  Userland hibernate tool can write GenS4Key at runtime then kernel
+	  will respect the value but not overwrite it when S4. This mechanism
+	  let userland tool can also notify bootloader to regenerate key-pair
+	  through GenS4Key flag.
+
 choice
 	prompt "Which hash algorithm should snapshot be signed with?"
         depends on SNAPSHOT_VERIFICATION

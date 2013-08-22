@@ -675,8 +675,10 @@ int hibernate(void)
 		pr_debug("PM: writing image.\n");
 		error = swsusp_write(flags);
 		swsusp_free();
-		if (!error)
+		if (!error) {
+			set_key_regen_flag();
 			power_down();
+		}
 		in_suspend = 0;
 		pm_restore_gfp_mask();
 	} else {
