@@ -187,6 +187,7 @@ extern void restore_sig_forward_info(void);
 extern bool swsusp_page_is_sign_key(struct page *page);
 extern unsigned long get_sig_forward_info_pfn(void);
 extern void fill_sig_forward_info(void *page_addr, int sig_check_ret);
+extern bool sig_enforced(void);
 #else
 static inline bool skey_data_available(void)
 {

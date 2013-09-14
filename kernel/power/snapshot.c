@@ -2581,7 +2581,11 @@ int snapshot_image_verify(void)
 		pr_info("PM: snapshot signature check SUCCESS!\n");
 
 forward_ret:
-	snapshot_fill_sig_forward_info(ret);
+	/* forward check result when pass or not enforce verify success */
+	if (!ret || !sig_enforced()) {
+		snapshot_fill_sig_forward_info(ret);
+		ret = 0;
+	}
 error_shash:
 	kfree(handle_buffers);
 	kfree(digest);

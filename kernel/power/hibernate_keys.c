@@ -17,6 +17,7 @@ struct forward_info {
 static void *skey_data;
 static void *forward_info_buf;
 static unsigned long skey_dsize;
+static bool sig_enforce = false;
 
 bool swsusp_page_is_sign_key(struct page *page)
 {
@@ -52,6 +53,7 @@ void fill_sig_forward_info(void *page, int sig_check_ret_in)
 	memset(page, 0, PAGE_SIZE);
 	info = (struct forward_info *)page;
 
+	info->head.sig_enforce = sig_enforce;
 	info->head.sig_check_ret = sig_check_ret_in;
 	if (skey_data && !IS_ERR(skey_data) &&
 		skey_dsize <= SKEY_DBUF_MAX_SIZE) {
@@ -74,6 +76,11 @@ void restore_sig_forward_info(void)
 	}
 	info = (struct forward_info *)forward_info_buf;
 
+	/* eanble sig_enforce either boot kernel or resume target kernel set it */
+	sig_enforce = sig_enforce || info->head.sig_enforce;
+	if (sig_enforce)
+		pr_info("PM: Enforce S4 snapshot signature check\n");
+
 	sig_check_ret = info->head.sig_check_ret;
 	if (sig_check_ret)
 		pr_info("PM: Signature check fail: %d\n", sig_check_ret);
@@ -89,6 +96,14 @@ void restore_sig_forward_info(void)
 
 	/* reset skey page buffer */
 	memset(forward_info_buf, 0, PAGE_SIZE);
+
+	/* taint kernel */
+	if (!sig_enforce && sig_check_ret) {
+		pr_warning("PM: Hibernate signature check fail, system "
+			   "restored from unsafe snapshot: tainting kernel\n");
+		add_taint(TAINT_UNSAFE_HIBERNATE, LOCKDEP_STILL_OK);
+		pr_info("%s\n", print_tainted());
+	}
 }
 
 bool skey_data_available(void)
@@ -275,6 +290,17 @@ size_t get_key_length(const struct key *key)
 	return len;
 }
 
+void enforce_signed_snapshot(void)
+{
+	sig_enforce = true;
+	pr_info("PM: Enforce signature verification of hibernate snapshot\n");
+}
+
+bool sig_enforced(void)
+{
+	return sig_enforce;
+}
+
 static int __init init_sign_key_data(void)
 {
 	skey_data = (void *)get_zeroed_page(GFP_KERNEL);
@@ -290,3 +316,12 @@ static int __init init_sign_key_data(void)
 }
 
 late_initcall(init_sign_key_data);
+
+static int __init sig_enforce_setup(char *str)
+{
+	sig_enforce = true;
+	pr_info("PM: Enforce signature verification of hibernate snapshot\n");
+	return 1;
+}
+
+__setup("snapshot_sig_enforce", sig_enforce_setup);

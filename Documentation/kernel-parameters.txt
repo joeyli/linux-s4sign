@@ -2730,6 +2730,13 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			Useful for devices that are detected asynchronously
 			(e.g. USB and MMC devices).
 
+	snapshot_sig_enforce
+			[HIBERNATE] When CONFIG_SNAPSHOT_VERIFICATION is set,
+			this means the snapshot image without (valid) signatures
+			will fail to recover. This parameter provides user to
+			force launch the snapshot signature check even the UEFI
+			secure boot didn't enable.
+
 	hibernate=	[HIBERNATION]
 		noresume	Don't check if there's a hibernation image
 				present during boot.
