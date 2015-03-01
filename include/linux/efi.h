@@ -598,6 +598,19 @@ extern void efi_get_time(struct timespec *now);
 extern int efi_set_rtc_mmss(const struct timespec *now);
 extern void efi_reserve_boot_services(void);
 extern struct efi_memory_map memmap;
+#ifdef CONFIG_HIBERNATE_VERIFICATION
+#define EFI_HIBERNATE_GUID \
+	EFI_GUID(0xfe141863, 0xc070, 0x478e, 0xb8, 0xa3, 0x87, 0x8a, 0x5d, 0xc9, 0xef, 0x21)
+/*
+ * The UEFI variable names of the keys to verify hibernate snapshot image:
+ * S4SignKey-EFI_HIBERNATE_GUID		: The key is used to sign snapshot
+ * S4VerifyKey-EFI_HIBERNATE_GUID	: The key is used to verify snapshot
+ */
+#define EFI_S4_SIGN_KEY_NAME	((efi_char16_t [10]) { 'S', '4', 'S', 'i', 'g', 'n', 'K', 'e', 'y', 0 })
+#define EFI_S4_VERIFY_KEY_NAME	((efi_char16_t [12]) { 'S', '4', 'V', 'e', 'r', 'i', 'f', 'y', 'K', 'e', 'y', 0 })
+extern int efi_copy_swsusp_skey(void *sign_key_copy);
+extern int efi_copy_swsusp_vkey(void *verify_key_copy);
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
 
 /**
  * efi_range_is_wc - check the WC bit on an address range

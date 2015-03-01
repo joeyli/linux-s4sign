@@ -3,6 +3,9 @@
 #include <linux/utsname.h>
 #include <linux/freezer.h>
 
+/* The maximum length of snapshot signature */
+#define SIG_LENG 64
+
 struct swsusp_info {
 	struct new_utsname	uts;
 	u32			version_code;
@@ -11,9 +14,29 @@ struct swsusp_info {
 	unsigned long		image_pages;
 	unsigned long		pages;
 	unsigned long		size;
+	unsigned long           params_forward_pfn;
+	u8                      signature[SIG_LENG];
 } __attribute__((aligned(PAGE_SIZE)));
 
 #ifdef CONFIG_HIBERNATION
+
+/* parameters pass from resume kernel to image kernel */
+struct swsusp_params {
+	bool                    sig_enforce;
+	int                     sig_check_ret;
+	int			skey_status;
+	int			vkey_status;
+	unsigned char		sign_key[SWSUSP_KEY_LENG];
+	unsigned char		verify_key[SWSUSP_KEY_LENG];
+} __attribute__((packed));
+
+/* kernel/power/hibernate_params.c */
+unsigned char *get_sign_key(void);
+unsigned char *get_verify_key(void);
+unsigned long swsusp_params_forward_pfn(void);
+void forward_swsusp_params(void *forward_page, int sig_check_ret);
+void clean_swsusp_params(void);
+
 /* kernel/power/snapshot.c */
 extern void __init hibernate_reserved_size_init(void);
 extern void __init hibernate_image_size_init(void);
@@ -134,6 +157,7 @@ extern int snapshot_read_next(struct snapshot_handle *handle);
 extern int snapshot_write_next(struct snapshot_handle *handle);
 extern void snapshot_write_finalize(struct snapshot_handle *handle);
 extern int snapshot_image_loaded(struct snapshot_handle *handle);
+extern int snapshot_image_verify(void);
 
 /* If unset, the snapshot device cannot be open. */
 extern atomic_t snapshot_device_available;

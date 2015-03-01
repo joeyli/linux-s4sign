@@ -42,6 +42,7 @@
 #include <linux/io.h>
 #include <linux/reboot.h>
 #include <linux/bcd.h>
+#include <linux/suspend.h>
 
 #include <asm/setup.h>
 #include <asm/efi.h>
@@ -704,6 +705,145 @@ static int __init efi_memmap_init(void)
 	return 0;
 }
 
+static u64 sign_key;
+static u64 verify_key;
+static unsigned long skey_status;
+static unsigned long vkey_status;
+
+/*
+bool efi_s4_key_available(void)
+{
+	return skey_data_addr && !skey_err_status;
+}
+*/
+
+/*
+bool __init efi_copy_swsusp_keys(void *sign_key_copy)	//TODO: change to copy 2 keys
+{
+	void *key_addr;
+
+	if ()
+
+//	if (efi_s4_key_available()) {
+		key_addr = early_ioremap(skey_data_addr, SWSUSP_KEY_LENG);
+		memcpy(page_addr, key_addr, SWSUSP_KEY_LENG);
+		early_iounmap(key_addr, SWSUSP_KEY_LENG);
+//	}
+}
+*/
+
+int __init efi_copy_swsusp_skey(void *sign_key_copy)
+{
+	void *key_addr;
+
+	if (!sign_key_copy)
+		return -EINVAL;
+
+	if (skey_status)
+		return skey_status;		// TODO: transfer EFI status to kernel error
+
+	key_addr = early_ioremap(sign_key, SWSUSP_KEY_LENG);
+	memcpy(sign_key_copy, key_addr, SWSUSP_KEY_LENG);
+	early_iounmap(key_addr, SWSUSP_KEY_LENG);
+
+	return 0;
+}
+
+int __init efi_copy_swsusp_vkey(void *verify_key_copy)
+{
+	void *key_addr;
+
+	if (!verify_key_copy)
+		return -EINVAL;
+
+	if (vkey_status)
+		return vkey_status;		// TODO: transfer EFI status to kernel error
+
+	key_addr = early_ioremap(verify_key, SWSUSP_KEY_LENG);
+	memcpy(verify_key_copy, key_addr, SWSUSP_KEY_LENG);
+	early_iounmap(key_addr, SWSUSP_KEY_LENG);
+
+	return 0;
+}
+
+void __init efi_erase_swsusp_keys(void)
+{
+	void *key_addr;
+
+	key_addr = early_ioremap(sign_key, SWSUSP_KEY_LENG);
+	memset(key_addr, 0, SWSUSP_KEY_LENG);
+	early_iounmap(key_addr, SWSUSP_KEY_LENG);
+	memblock_free(sign_key, SWSUSP_KEY_LENG);
+	sign_key = 0;
+
+	key_addr = early_ioremap(verify_key, SWSUSP_KEY_LENG);
+	memset(key_addr, 0, SWSUSP_KEY_LENG);
+	early_iounmap(key_addr, SWSUSP_KEY_LENG);
+	memblock_free(verify_key, SWSUSP_KEY_LENG);
+	verify_key = 0;
+}
+
+static unsigned int rdtsc (void)			/* TODO: move to EFI stub */
+{
+        unsigned int hi, lo;
+
+        asm volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+
+        return lo;
+}
+
+static void gen_random(void)
+{
+	pr_info("random seed: %d", rdtsc());
+}
+
+static void __init efi_reserve_swsusp_keys(void)
+{
+	u64 pa_data;
+	struct setup_data *data;
+	struct efi_swsusp_data *swsusp_data;
+	void *key_addr;				//TODO: kill
+
+	gen_random(); //TODO: kill
+
+	pr_info("efi_reserve_swsusp_keys\n");
+	skey_status = vkey_status = 0;
+	pa_data = boot_params.hdr.setup_data;
+	while (pa_data) {
+		data = early_ioremap(pa_data, sizeof(*swsusp_data));
+		pr_info("data->type: %d", data->type);
+		if (data->type == SETUP_SWSUSP_KEYS) {
+			swsusp_data = (struct efi_swsusp_data *)data;
+			if (!swsusp_data->skey_status) {
+				sign_key = (u64) swsusp_data->sign_key;
+				memblock_reserve(sign_key, SWSUSP_KEY_LENG);	/* TODO: when unreserve memory? */
+				pr_info("Get swsusp sign key success\n");	/* TODO： kill */
+
+				//pr_info("%s\n", (char *) sign_key);	/* TODO： kill */
+        			key_addr = early_ioremap(sign_key, SWSUSP_KEY_LENG);
+				pr_info("%s\n", (char *) key_addr);	/* TODO： kill */
+        			early_iounmap(key_addr, SWSUSP_KEY_LENG);	
+			} else {
+				skey_status = swsusp_data->skey_status;
+				pr_err("Get S4 sign key from EFI fail: 0x%lx\n",
+					skey_status);
+			}
+
+			if (!swsusp_data->vkey_status) {
+				verify_key = (u64) swsusp_data->verify_key;
+				memblock_reserve(verify_key, SWSUSP_KEY_LENG);	/* TODO: when unreserve memory? */
+				pr_info("Get S4 verify key success\n");	/* TODO： kill */ 
+			} else {
+				vkey_status = swsusp_data->vkey_status;
+				pr_err("Get S4 verify key from EFI fail: 0x%lx\n",
+					vkey_status);
+			}
+		}
+		pa_data = data->next;
+		early_iounmap(data, sizeof(*swsusp_data));
+	}
+}
+
 void __init efi_init(void)
 {
 	efi_char16_t *c16;
@@ -728,6 +868,8 @@ void __init efi_init(void)
 		return;
 
 	set_bit(EFI_SYSTEM_TABLES, &x86_efi_facility);
+
+	efi_reserve_swsusp_keys();
 
 	/*
 	 * Show what we know for posterity

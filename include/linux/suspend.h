@@ -302,6 +302,10 @@ struct platform_hibernation_ops {
 };
 
 #ifdef CONFIG_HIBERNATION
+
+/* hibernate sign key length 1024 bits */
+#define SWSUSP_KEY_LENG   128
+
 /* kernel/power/snapshot.c */
 extern void __register_nosave_region(unsigned long b, unsigned long e, int km);
 static inline void __init register_nosave_region(unsigned long b, unsigned long e)

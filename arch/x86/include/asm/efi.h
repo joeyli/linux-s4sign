@@ -102,6 +102,14 @@ extern void efi_call_phys_epilog(void);
 extern void efi_unmap_memmap(void);
 extern void efi_memory_uc(u64 addr, unsigned long size);
 
+struct efi_swsusp_data {
+	struct setup_data data;
+	unsigned long skey_status;
+	void *sign_key;
+	unsigned long vkey_status;
+	void *verify_key;
+};
+
 #ifdef CONFIG_EFI
 
 static inline bool efi_is_native(void)

@@ -9,6 +9,7 @@
 
 #include <linux/efi.h>
 #include <linux/pci.h>
+#include <linux/suspend.h>
 #include <asm/efi.h>
 #include <asm/setup.h>
 #include <asm/desc.h>
@@ -365,6 +366,187 @@ static efi_status_t setup_efi_pci(struct boot_params *params)
 
 free_handle:
 	efi_call_phys1(sys_table->boottime->free_pool, pci_handle);
+	return status;
+}
+
+static int set_sign_key(void)
+{
+        /* TODO: generate 1024 bits key for HMAC */
+	/* TODO: a. when saw the random seed from runtime, hibernate process will add random seed */
+	/* TODO: b. when sign key and verify key didn't find, so get sign key and verify key first */
+        /* source: RdRand, runtime random seed, last sign key */
+	static char *sign_key = "hmac-key-from-efi-stubdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd8";
+	efi_status_t status = 0;
+
+	status = efi_call_phys5(sys_table->runtime->set_variable,
+				EFI_S4_SIGN_KEY_NAME, &EFI_HIBERNATE_GUID,
+				EFI_VARIABLE_NON_VOLATILE |
+				EFI_VARIABLE_BOOTSERVICE_ACCESS |
+				EFI_VARIABLE_RUNTIME_ACCESS,
+				SWSUSP_KEY_LENG, sign_key);
+	if (status)
+		efi_printk("Couldn't set sign key variable\n");
+	else
+		efi_printk("Set sign key success\n");
+
+	return status;
+}
+
+static char *generate_sign_key(void)
+{
+	int w[5];
+
+        /* TODO: generate 1024 bits key for HMAC */
+	/* TODO: a. when saw the random seed from runtime, hibernate process will add random seed */
+	/* TODO: b. when sign key and verify key didn't find, so get sign key and verify key first */
+        /* source: RdRand, runtime random seed, last sign key */
+	static char *sign_key = "hmac-key-from-efi-stubdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd8";
+
+        /* Generate a hash across the pool, 16 words (512 bits) at a time */
+        sha_init(w);
+
+        /*
+         * we have 320 bits of information to hash, copy in the remaining
+         * 192 bits required for sha_transform, from the syncookie_secret
+         * and overwrite the digest with the secret
+         */
+/*
+        memcpy(tmp + 10, syncookie_secret[c], 44);
+        memcpy(tmp, saddr, 16);
+        memcpy(tmp + 4, daddr, 16);
+        tmp[8] = ((__force u32)sport << 16) + (__force u32)dport;
+        tmp[9] = count;
+*/
+
+	return sign_key;
+}
+
+static int get_sign_key(void *sign_key)
+{
+//	static char *key = "hmac-key-from-efi-stubdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd8";
+//	memcpy(sign_key, key, SWSUSP_KEY_LENG);		/* TODO: using SWSUSP_KEY_LENG */
+
+	unsigned long sign_key_size;
+	u32 attr;
+	efi_status_t status = 0;
+
+	memset(sign_key, 0, SWSUSP_KEY_LENG);
+	status = efi_call_phys5(sys_table->runtime->get_variable,
+				EFI_S4_SIGN_KEY_NAME, &EFI_HIBERNATE_GUID, &attr,
+				&sign_key_size, sign_key);
+	if (status)
+		efi_printk("Couldn't get sign key \n");
+	//TODO: check size?
+/*
+	if (attr & EFI_VARIABLE_RUNTIME_ACCESS) {		//TODO: don't need check runtime 
+               efi_printk("S4 sign key can not be a runtime variable\n");
+               memset((void *)s4key->skey_data_addr, 0, s4key->skey_dsize);
+               status = EFI_UNSUPPORTED;
+               goto error_gets4key;
+	}
+*/
+
+	return status;
+}
+
+static int get_verify_key(void *verify_key)
+{
+//	static char *key = "hmac-key-from-efi-stubdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd8";
+//	memcpy(verify_key, key, SWSUSP_KEY_LENG);		/* TODO: using SWSUSP_KEY_LENG */
+
+//	return 0;
+        unsigned long verify_key_size;
+        u32 attr;
+        efi_status_t status = 0;
+
+        memset(verify_key, 0, SWSUSP_KEY_LENG);
+        status = efi_call_phys5(sys_table->runtime->get_variable,
+                                EFI_S4_SIGN_KEY_NAME, &EFI_HIBERNATE_GUID, &attr,
+                                &verify_key_size, verify_key);
+        if (status)
+                efi_printk("Couldn't get verify key \n");
+
+	return status;
+}
+
+static efi_status_t setup_swsusp_keys(struct boot_params *params)
+{
+	struct setup_data *setup_data;
+	struct efi_swsusp_data *swsusp_data;
+	efi_status_t status;
+
+	/* setup_data for carry keys */
+	setup_data = (struct setup_data *)params->hdr.setup_data;
+	while (setup_data && setup_data->next)
+		setup_data = (struct setup_data *)setup_data->next;
+
+	status = efi_call_phys3(sys_table->boottime->allocate_pool,
+				EFI_LOADER_DATA, sizeof(*swsusp_data), &swsusp_data);
+	if (status != EFI_SUCCESS) {
+		efi_printk("Failed to alloc memory for efi_swsusp_data\n");
+		//goto error_setup;
+	}
+	swsusp_data->data.type = SETUP_SWSUSP_KEYS;
+	swsusp_data->data.len = sizeof(struct efi_swsusp_data) -
+		sizeof(struct setup_data);
+	swsusp_data->data.next = 0;
+	swsusp_data->skey_status = swsusp_data->vkey_status = 0;
+
+	if (setup_data)
+		setup_data->next = (unsigned long)swsusp_data;
+	else
+		params->hdr.setup_data = (unsigned long)swsusp_data;
+
+	/* TODO: process:
+	* 	a. should regenerate sign key? YES, then sign key to be verify key
+	 *	b. get sign key
+	*			store sign key to verify key
+	*			new sign key store to boot variable, and be sign key	
+	* 	c. NO, load verify key, forward sign key and verify key
+	*/
+
+	/* TODO: store sign key to boot variable, make sure sign key stored? */
+	status = efi_call_phys3(sys_table->boottime->allocate_pool,
+				EFI_LOADER_DATA, SWSUSP_KEY_LENG,
+				&swsusp_data->sign_key);
+	if (status != EFI_SUCCESS) {
+		efi_printk("Failed to alloc page for hibernate sign keys\n");
+		//goto error_s4key;
+	}
+
+        /* TODO: generate new key for next S4 cycle */
+	generate_sign_key();
+	status = get_sign_key(swsusp_data->sign_key);				/* TODO: capture status */
+	if (status) {
+		/* generate sign key when didn't find it */
+		set_sign_key();
+		get_sign_key(swsusp_data->sign_key);
+	}
+	efi_printk("sign_key: ");					// TODO: kill
+	efi_printk(swsusp_data->sign_key);
+
+	//memcpy(&swsusp_data->sign_key, key, sizeof(key)/sizeof(char*));		/* TODO: using SWSUSP_KEY_LENG */
+	
+	/* TODO: get verify key from boot variable */
+	/* rewrite verify key when re-generate sign key */
+	status = efi_call_phys3(sys_table->boottime->allocate_pool,
+				EFI_LOADER_DATA, SWSUSP_KEY_LENG,
+				&swsusp_data->verify_key);
+	if (status != EFI_SUCCESS) {
+		efi_printk("Failed to alloc page for hibernate sign keys\n");
+		//goto error_s4key;
+	}
+	get_verify_key(swsusp_data->verify_key);			/* TODO: capture status */
+	if (status != EFI_SUCCESS) {
+		memcpy(swsusp_data->verify_key, swsusp_data->sign_key, SWSUSP_KEY_LENG); 
+	} else {
+		efi_printk("verify_key: ");					//TODO: kill
+		efi_printk(swsusp_data->verify_key);
+	}
+//	memcpy(&swsusp_data->verify_key, key, sizeof(key)/sizeof(char*));		/* TODO: get verify key from boot variable */
+
+	/* TODO: store new key to boot variable */
+
 	return status;
 }
 
@@ -1172,6 +1354,8 @@ struct boot_params *efi_main(void *handle, efi_system_table_t *_table,
 	setup_graphics(boot_params);
 
 	setup_efi_pci(boot_params);
+
+	setup_swsusp_keys(boot_params);
 
 	status = efi_call_phys3(sys_table->boottime->allocate_pool,
 				EFI_LOADER_DATA, sizeof(*gdt),

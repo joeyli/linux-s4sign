@@ -27,6 +27,7 @@
 #include <linux/highmem.h>
 #include <linux/list.h>
 #include <linux/slab.h>
+#include <crypto/hash.h>
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -1034,7 +1035,111 @@ static inline void copy_data_page(unsigned long dst_pfn, unsigned long src_pfn)
 }
 #endif /* CONFIG_HIGHMEM */
 
-static void
+#define SNAPSHOT_HASH "hmac(sha1)"
+
+/*
+ * Signature of snapshot for check.
+ */
+static u8 signature[SIG_LENG];
+
+/*
+ * The pfn of parameters forward page from resume target.
+ * Used to find out which handle->buff maps to params forward page.
+ */
+unsigned long params_forward_pfn;
+
+/* the handle->buff maps params forward page */
+void *params_forward_page;
+
+static int
+__copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
+{
+	unsigned long pfn, dst_pfn;
+	struct page *d_page;
+	void *hash_buffer = NULL;
+	struct crypto_shash *tfm;
+	struct shash_desc *desc;
+	u8 *digest;
+	size_t digest_size, desc_size;
+	char *key;
+	int ret;
+
+	//TODO: check skey_status before get it
+	key = get_sign_key();
+	pr_info("rrrrrrr: %s\n", key);
+
+	ret = -ENOMEM;                                          //TODO: change default error code?
+	tfm = crypto_alloc_shash(SNAPSHOT_HASH, 0, 0);
+	if (IS_ERR(tfm)) {
+		pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
+		return PTR_ERR(tfm);
+	}
+
+	ret = crypto_shash_setkey(tfm ,key, strlen(key));       // TODO: change length of key
+	if(ret) {
+		printk(KERN_ERR "crypto_shash_setkey failed\n");
+		goto error_digest;                                              // TODO: change goto?
+	}
+
+	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+	digest_size = crypto_shash_digestsize(tfm);
+	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+	if (!digest) {
+		pr_err("digest allocate fail");
+		ret = -ENOMEM;
+		goto error_digest;
+	}
+	desc = (void *) digest + digest_size;
+	desc->tfm = tfm;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+	ret = crypto_shash_init(desc);
+	if (ret < 0)
+		goto error_shash;
+
+	memory_bm_position_reset(orig_bm);
+	memory_bm_position_reset(copy_bm);
+	for(;;) {
+		pfn = memory_bm_next_pfn(orig_bm);
+		if (unlikely(pfn == BM_END_OF_MAP))
+			break;
+		dst_pfn = memory_bm_next_pfn(copy_bm);
+		copy_data_page(dst_pfn, pfn);
+
+		/* Generate digest */
+		d_page = pfn_to_page(dst_pfn);
+		if (PageHighMem(d_page)) {
+			void *kaddr = kmap_atomic(d_page);
+			copy_page(buffer, kaddr);
+			kunmap_atomic(kaddr);
+			hash_buffer = buffer;
+		} else {
+			hash_buffer = page_address(d_page);
+		}
+		ret = crypto_shash_update(desc, hash_buffer, PAGE_SIZE);
+		if (ret)
+			goto error_shash;
+	}
+
+	ret = crypto_shash_final(desc, digest);
+	if (ret)
+		goto error_shash;
+
+	memset(signature, 0, SIG_LENG);         //TODO: kill
+	memcpy(signature, digest, (int) digest_size);
+
+	kfree(digest);
+	crypto_free_shash(tfm);
+
+	return 0;
+
+error_shash:
+	kfree(digest);
+error_digest:
+	crypto_free_shash(tfm);
+	return ret;
+}
+
+static int
 copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 {
 	struct zone *zone;
@@ -1049,14 +1154,8 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 			if (page_is_saveable(zone, pfn))
 				memory_bm_set_bit(orig_bm, pfn);
 	}
-	memory_bm_position_reset(orig_bm);
-	memory_bm_position_reset(copy_bm);
-	for(;;) {
-		pfn = memory_bm_next_pfn(orig_bm);
-		if (unlikely(pfn == BM_END_OF_MAP))
-			break;
-		copy_data_page(memory_bm_next_pfn(copy_bm), pfn);
-	}
+
+	return __copy_data_pages(copy_bm, orig_bm);
 }
 
 /* Total number of image pages */
@@ -1583,6 +1682,7 @@ swsusp_alloc(struct memory_bitmap *orig_bm, struct memory_bitmap *copy_bm,
 asmlinkage int swsusp_save(void)
 {
 	unsigned int nr_pages, nr_highmem;
+	int ret;
 
 	printk(KERN_INFO "PM: Creating hibernation image:\n");
 
@@ -1605,7 +1705,9 @@ asmlinkage int swsusp_save(void)
 	 * Kill them.
 	 */
 	drain_local_pages(NULL);
-	copy_data_pages(&copy_bm, &orig_bm);
+	ret = copy_data_pages(&copy_bm, &orig_bm);
+	if (ret)
+		return ret;
 
 	/*
 	 * End of critical section. From now on, we can write to memory,
@@ -1660,6 +1762,8 @@ static int init_header(struct swsusp_info *info)
 	info->pages = snapshot_get_image_size();
 	info->size = info->pages;
 	info->size <<= PAGE_SHIFT;
+	info->params_forward_pfn = swsusp_params_forward_pfn();
+	memcpy(info->signature, signature, SIG_LENG);
 	return init_header_complete(info);
 }
 
@@ -1822,6 +1926,9 @@ load_header(struct swsusp_info *info)
 	if (!error) {
 		nr_copy_pages = info->image_pages;
 		nr_meta_pages = info->pages - info->image_pages - 1;
+		memset(signature, 0, SIG_LENG);         //TODO: kill?
+		params_forward_pfn = info->params_forward_pfn;
+		memcpy(signature, info->signature, SIG_LENG);
 	}
 	return error;
 }
@@ -2162,7 +2269,8 @@ prepare_image(struct memory_bitmap *new_bm, struct memory_bitmap *bm)
  *	set for its caller to write to.
  */
 
-static void *get_buffer(struct memory_bitmap *bm, struct chain_allocator *ca)
+static void *get_buffer(struct memory_bitmap *bm, struct chain_allocator *ca,
+		unsigned long *_pfn)
 {
 	struct pbe *pbe;
 	struct page *page;
@@ -2170,6 +2278,9 @@ static void *get_buffer(struct memory_bitmap *bm, struct chain_allocator *ca)
 
 	if (pfn == BM_END_OF_MAP)
 		return ERR_PTR(-EFAULT);
+
+	if (_pfn)
+		*_pfn = pfn;
 
 	page = pfn_to_page(pfn);
 	if (PageHighMem(page))
@@ -2197,6 +2308,8 @@ static void *get_buffer(struct memory_bitmap *bm, struct chain_allocator *ca)
 	return pbe->address;
 }
 
+void **h_buf;
+
 /**
  *	snapshot_write_next - used for writing the system memory snapshot.
  *
@@ -2217,6 +2330,7 @@ static void *get_buffer(struct memory_bitmap *bm, struct chain_allocator *ca)
 int snapshot_write_next(struct snapshot_handle *handle)
 {
 	static struct chain_allocator ca;
+	unsigned long pfn;
 	int error = 0;
 
 	/* Check if we have already loaded the entire image */
@@ -2238,6 +2352,13 @@ int snapshot_write_next(struct snapshot_handle *handle)
 		error = load_header(buffer);
 		if (error)
 			return error;
+
+		/* Allocate void * array to keep buffer point for generate hash,
+		 * h_buf will freed in snapshot_image_verify().
+		 */
+		h_buf = kmalloc(sizeof(void *) * nr_copy_pages, GFP_KERNEL);
+		if (!h_buf)
+			pr_err("Allocate hash buffer fail!");
 
 		error = memory_bm_create(&copy_bm, GFP_ATOMIC, PG_ANY);
 		if (error)
@@ -2261,20 +2382,26 @@ int snapshot_write_next(struct snapshot_handle *handle)
 			chain_init(&ca, GFP_ATOMIC, PG_SAFE);
 			memory_bm_position_reset(&orig_bm);
 			restore_pblist = NULL;
-			handle->buffer = get_buffer(&orig_bm, &ca);
+			handle->buffer = get_buffer(&orig_bm, &ca, &pfn);
 			handle->sync_read = 0;
 			if (IS_ERR(handle->buffer))
 				return PTR_ERR(handle->buffer);
+			if (h_buf)
+				*h_buf = handle->buffer;
 		}
 	} else {
 		copy_last_highmem_page();
 		/* Restore page key for data page (s390 only). */
 		page_key_write(handle->buffer);
-		handle->buffer = get_buffer(&orig_bm, &ca);
+		handle->buffer = get_buffer(&orig_bm, &ca, &pfn);
 		if (IS_ERR(handle->buffer))
 			return PTR_ERR(handle->buffer);
 		if (handle->buffer != buffer)
 			handle->sync_read = 0;
+		if (h_buf)
+			*(h_buf + (handle->cur - nr_meta_pages - 1)) = handle->buffer;
+		if (pfn == params_forward_pfn)
+			params_forward_page = handle->buffer;
 	}
 	handle->cur++;
 	return PAGE_SIZE;
@@ -2305,6 +2432,97 @@ int snapshot_image_loaded(struct snapshot_handle *handle)
 {
 	return !(!nr_copy_pages || !last_highmem_page_copied() ||
 			handle->cur <= nr_meta_pages + nr_copy_pages);
+}
+
+static void snapshot_forward_params(int sig_check_ret)
+{
+	if (!params_forward_page)		/* TODO: should print error message? */
+		return;
+
+	/* Fill new s4 sign key to snapshot in memory */
+	forward_swsusp_params(params_forward_page, sig_check_ret);
+
+	/* erase the footprint of keys in swsusp params page */
+	clean_swsusp_params();
+}
+
+int snapshot_image_verify(void)
+{
+	struct crypto_shash *tfm;
+	struct shash_desc *desc;
+	u8 *digest;
+	size_t digest_size, desc_size;
+	char *key;
+	int ret, i;
+
+	if (!h_buf)
+		return 0;
+
+        //TODO: check vkey_status before get it
+        key = get_verify_key();
+//	if (ret)				/* TODO: if verify key doesn't available, then should forward params? */
+//		goto forward_ret;
+
+	tfm = crypto_alloc_shash(SNAPSHOT_HASH, 0, 0);
+	if (IS_ERR(tfm)) {
+		pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
+		return PTR_ERR(tfm);
+	}
+
+	ret = crypto_shash_setkey(tfm ,key, strlen(key));	// TODO: change length of key
+	if(ret) {
+		printk(KERN_ERR "crypto_shash_setkey failed\n");
+		goto error_digest;						// TODO: change goto?
+	}
+
+       desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+       digest_size = crypto_shash_digestsize(tfm);
+       digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+       if (!digest) {
+               pr_err("digest allocate fail");
+               ret = -ENOMEM;
+               goto error_digest;
+       }
+	desc = (void *) digest + digest_size;
+	desc->tfm = tfm;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+
+	ret = crypto_shash_init(desc);
+	if (ret < 0)
+		goto error_shash;
+
+	for (i = 0; i < nr_copy_pages; i++) {
+		ret = crypto_shash_update(desc, *(h_buf + i), PAGE_SIZE);
+		if (ret)
+			goto error_shash;
+	}
+
+	ret = crypto_shash_final(desc, digest);
+	if (ret)
+		goto error_shash;
+
+	/* TODO: memory compare */
+	pr_err("digest_size: %d\n", (int) digest_size);
+	pr_err("signature: %*phN\n", (int) digest_size, signature);
+	pr_err("digest: %*phN\n", (int) digest_size, digest);
+	ret = memcmp(signature, digest, (int) digest_size);
+	if (ret)
+		goto error_verify;
+
+	kfree(h_buf);
+	kfree(digest);
+	crypto_free_shash(tfm);
+	return 0;
+
+//forward_ret:		TODO: kill
+	snapshot_forward_params(ret);
+error_verify:
+error_shash:
+	kfree(h_buf);
+	kfree(digest);
+error_digest:
+	crypto_free_shash(tfm);
+	return ret;
 }
 
 #ifdef CONFIG_HIGHMEM

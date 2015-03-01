@@ -1004,6 +1004,11 @@ static int load_image(struct swap_map_handle *handle,
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
+		ret = snapshot_image_verify();
+		if (ret)
+			pr_info("PM: snapshot signature check FAIL: %d\n", ret);
+		else
+			pr_info("PM: snapshot signature check SUCCESS!\n");
 	}
 	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
 	return ret;
@@ -1358,6 +1363,11 @@ out_finish:
 				}
 			}
 		}
+		ret = snapshot_image_verify();
+		if (ret)
+			pr_info("PM: snapshot signature check FAIL: %d\n", ret);
+		else
+			pr_info("PM: snapshot signature check SUCCESS!\n");
 	}
 	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
 out_clean:

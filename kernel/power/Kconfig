@@ -66,6 +66,18 @@ config HIBERNATION
 
 	  For more information take a look at <file:Documentation/power/swsusp.txt>.
 
+config HIBERNATE_VERIFICATION
+	bool "Hibernate snapshot verification"
+	depends on HIBERNATION
+	depends on EFI_STUB
+	depends on X86
+	select PKCS8_PRIVATE_KEY_INFO_PARSER
+	help
+	  This option provides support for generate anad verify the signautre by
+	  RSA key-pair against hibernate snapshot image. Current mechanism
+	  dependent on UEFI environment. EFI bootloader should generate the
+	  key-pair.
+
 config ARCH_SAVE_PAGE_KEYS
 	bool
 
