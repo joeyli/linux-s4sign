@@ -368,6 +368,48 @@ free_handle:
 	return status;
 }
 
+#ifdef CONFIG_HIBERNATION
+#define EFI_HIBERNATE_GUID \
+	EFI_GUID(0xfe141863, 0xc070, 0x478e, 0xb8, 0xa3, 0x87, 0x8a, 0x5d, 0xc9, 0xef, 0x21)
+#define EFI_S4_SIGN_KEY_NAME   ((efi_char16_t [9]) { 'S', 'H', 'A', '1', 'T', 'E', 'S', 'T', 0 })
+
+#define SHA1_TEST_STRING "1234567890abcdef"
+
+static int set_sha1test_key(u8 *key)
+{
+	efi_status_t status = 0;
+
+	status = efi_call_phys5(sys_table->runtime->set_variable,
+				EFI_S4_SIGN_KEY_NAME, &EFI_HIBERNATE_GUID,
+				EFI_VARIABLE_NON_VOLATILE |
+				EFI_VARIABLE_BOOTSERVICE_ACCESS |
+				EFI_VARIABLE_RUNTIME_ACCESS,
+				20, key);
+	if (status)
+		efi_printk("Couldn't set sign key variable\n");
+	else
+		efi_printk("Set sign key success\n");
+
+	return status;
+}
+
+static void test_sha1(void)
+{
+	struct sha1_state *sctx;
+	u8 out[20];
+
+	efi_printk("SHA1 Test in EFI stub\n");
+
+	sha1_init(sctx);
+	sha1_update(sctx, SHA1_TEST_STRING, 16);
+	sha1_final_digest(sctx, out);
+
+	set_sha1test_key(out);
+}
+#else
+static void test_sha1(void) {}
+#endif /* CONFIG_SNAPSHOT_VERIFICATION */
+
 /*
  * See if we have Graphics Output Protocol
  */
@@ -1168,6 +1210,8 @@ struct boot_params *efi_main(void *handle, efi_system_table_t *_table,
 	/* Check if we were booted by the EFI firmware */
 	if (sys_table->hdr.signature != EFI_SYSTEM_TABLE_SIGNATURE)
 		goto fail;
+
+	test_sha1();
 
 	setup_graphics(boot_params);
 
