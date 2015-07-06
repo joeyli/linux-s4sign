@@ -4,6 +4,7 @@
 #include <linux/freezer.h>
 #include <linux/compiler.h>
 
+#ifdef CONFIG_HIBERNATION
 struct swsusp_info {
 	struct new_utsname	uts;
 	u32			version_code;
@@ -12,9 +13,9 @@ struct swsusp_info {
 	unsigned long		image_pages;
 	unsigned long		pages;
 	unsigned long		size;
+	u8                      signature[HIBERNATION_DIGEST_SIZE];
 } __aligned(PAGE_SIZE);
 
-#ifdef CONFIG_HIBERNATION
 /* kernel/power/snapshot.c */
 extern void __init hibernate_reserved_size_init(void);
 extern void __init hibernate_image_size_init(void);
