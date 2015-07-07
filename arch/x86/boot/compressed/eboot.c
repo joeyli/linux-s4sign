@@ -1392,19 +1392,23 @@ free_mem_map:
 
 static void setup_swsusp_keys(struct boot_params *params)
 {
-	unsigned long key_size, attributes;
+	struct setup_data *setup_data, *swsusp_setup_data;
 	struct swsusp_keys *swsusp_keys;
+	int size = 0;
+	unsigned long key_size, attributes;
 	efi_status_t status;
 
 	/* Allocate setup_data to carry keys */
+	size = sizeof(struct setup_data) + sizeof(struct swsusp_keys);
 	status = efi_call_early(allocate_pool, EFI_LOADER_DATA,
-				sizeof(struct swsusp_keys), &swsusp_keys);
+				size, &swsusp_setup_data);
 	if (status != EFI_SUCCESS) {
 		efi_printk(sys_table, "Failed to alloc mem for swsusp_keys\n");
 		return;
 	}
 
-	memset(swsusp_keys, 0, sizeof(struct swsusp_keys));
+	memset(swsusp_setup_data, 0, size);
+	swsusp_keys = (struct swsusp_keys *)swsusp_setup_data->data;
 
 	status = efi_call_early(get_variable, SWSUSP_KEY, &EFI_SWSUSP_GUID,
 				&attributes, &key_size, swsusp_keys->swsusp_key);
@@ -1413,7 +1417,9 @@ static void setup_swsusp_keys(struct boot_params *params)
 		memset(swsusp_keys->swsusp_key, 0, SWSUSP_DIGEST_SIZE);
 		status = efi_call_early(set_variable, SWSUSP_KEY,
 					&EFI_SWSUSP_GUID, attributes, 0, NULL);
-		if (status == EFI_SUCCESS) {
+		if (status)
+			goto clean_fail;
+		else {
 			efi_printk(sys_table, "Cleaned existing swsusp key\n");
 			status = EFI_NOT_FOUND;
 		}
@@ -1433,6 +1439,21 @@ static void setup_swsusp_keys(struct boot_params *params)
 		if (status != EFI_SUCCESS)
 			efi_printk(sys_table, "Failed to set swsusp key\n");
 	}
+
+clean_fail:
+	swsusp_setup_data->type = SETUP_SWSUSP_KEYS;
+	swsusp_setup_data->len = sizeof(struct swsusp_keys);
+	swsusp_setup_data->next = 0;
+	swsusp_keys->skey_status = efi_status_to_err(status);
+
+	setup_data = (struct setup_data *)params->hdr.setup_data;
+	while (setup_data && setup_data->next)
+		setup_data = (struct setup_data *)setup_data->next;
+
+	if (setup_data)
+		setup_data->next = (unsigned long)swsusp_setup_data;
+	else
+		params->hdr.setup_data = (unsigned long)swsusp_setup_data;
 }
 #else
 static void setup_swsusp_keys(struct boot_params *params) {}
