@@ -653,6 +653,8 @@ int hibernate(void)
 {
 	int error;
 
+	set_swsusp_key_regen_flag = false;
+
 	if (!hibernation_available()) {
 		pr_debug("PM: Hibernation not available.\n");
 		return -EPERM;

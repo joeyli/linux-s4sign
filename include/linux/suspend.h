@@ -330,6 +330,11 @@ struct platform_hibernation_ops {
 
 #define EFI_SWSUSP_GUID \
 	EFI_GUID(0xfe141863, 0xc070, 0x478e, 0xb8, 0xa3, 0x87, 0x8a, 0x5d, 0xc9, 0xef, 0x21)
+#define SWSUSP_KEY_REGEN_FLAG \
+	((efi_char16_t [15]) { 'S', 'W', 'S', 'U', 'S', 'P', 'K', 'e', 'y', 'R', 'e', 'g', 'e', 'n', 0 })
+#define SWSUSP_KEY_SEED_ATTRIBUTE      (EFI_VARIABLE_NON_VOLATILE | \
+					EFI_VARIABLE_BOOTSERVICE_ACCESS | \
+					EFI_VARIABLE_RUNTIME_ACCESS)
 
 /* HMAC Algorithm of Hibernate Signature */
 #define SWSUSP_HMAC		"hmac(sha1)"
@@ -337,6 +342,16 @@ struct platform_hibernation_ops {
 
 /* kernel/power/hibernate.c */
 extern int sigenforce;
+
+/* drivers/firmware/efi/efi-hibernate_keys.c */
+extern bool set_swsusp_key_regen_flag;
+
+#ifdef CONFIG_HIBERNATE_VERIFICATION
+/* drivers/firmware/efi/efi-hibernate_keys.c */
+extern void create_swsusp_key_regen_flag(void);
+#else
+static inline void create_swsusp_key_regen_flag(void) {}
+#endif
 
 /* kernel/power/snapshot.c */
 extern void __register_nosave_region(unsigned long b, unsigned long e, int km);

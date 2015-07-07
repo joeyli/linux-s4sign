@@ -165,6 +165,8 @@ static int __init init_hibernate_keys(void)
 	memblock_free(keys_phys_addr, sizeof(struct swsusp_keys));
 	keys_phys_addr = 0;
 
+	set_swsusp_key_regen_flag = false;
+
 	return ret;
 }
 

@@ -338,6 +338,8 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
+		/* clean flag to avoid swsusp key regenerated */
+		set_swsusp_key_regen_flag = false;
 		/*
 		 * Tasks are frozen and the notifiers have been called with
 		 * PM_HIBERNATION_PREPARE
@@ -351,6 +353,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		break;
 
 	case SNAPSHOT_POWER_OFF:
+		set_swsusp_key_regen_flag = false;
 		if (data->platform_support)
 			error = hibernation_platform_enter();
 		break;
@@ -384,6 +387,10 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 				error = -EINVAL;
 			}
 		}
+		break;
+
+	case SNAPSHOT_REGENERATE_KEY:
+		set_swsusp_key_regen_flag = !!arg;
 		break;
 
 	default:

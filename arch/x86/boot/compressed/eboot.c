@@ -1394,9 +1394,10 @@ static void setup_swsusp_keys(struct boot_params *params)
 {
 	struct setup_data *setup_data, *swsusp_setup_data;
 	struct swsusp_keys *swsusp_keys;
+	bool regen_key = false;
 	int size = 0;
-	unsigned long key_size, attributes;
-	efi_status_t status;
+	unsigned long ignore, key_size, attributes;
+	efi_status_t status, reg_status;
 
 	/* Allocate setup_data to carry keys */
 	size = sizeof(struct setup_data) + sizeof(struct swsusp_keys);
@@ -1425,12 +1426,16 @@ static void setup_swsusp_keys(struct boot_params *params)
 		}
 	}
 
-	if (status != EFI_SUCCESS) {
-		efi_printk(sys_table, "Failed to get existing swsusp key\n");
+	reg_status = efi_call_early(get_variable, SWSUSP_KEY_REGEN_FLAG,
+				&EFI_SWSUSP_GUID, NULL, &ignore, &regen_key);
+	if ((status != EFI_SUCCESS) ||
+	   (reg_status == EFI_SUCCESS && regen_key)) {
+		efi_printk(sys_table, "Regenerating swsusp key\n");
 
 		efi_get_random_key(sys_table, params, swsusp_keys->swsusp_key,
 				   SWSUSP_DIGEST_SIZE);
 
+		/* Set new swsusp key to bootservice non-volatile variable */
 		status = efi_call_early(set_variable, SWSUSP_KEY,
 					&EFI_SWSUSP_GUID,
 					SWSUSP_KEY_ATTRIBUTE,
@@ -1438,6 +1443,13 @@ static void setup_swsusp_keys(struct boot_params *params)
 					swsusp_keys->swsusp_key);
 		if (status != EFI_SUCCESS)
 			efi_printk(sys_table, "Failed to set swsusp key\n");
+
+		efi_call_early(get_variable, SWSUSP_KEY, &EFI_SWSUSP_GUID,
+				NULL, &key_size, swsusp_keys->swsusp_key);
+
+		/* Clean key regenerate flag */
+		efi_call_early(set_variable, SWSUSP_KEY_REGEN_FLAG,
+				&EFI_SWSUSP_GUID, 0, 0, NULL);
 	}
 
 clean_fail:

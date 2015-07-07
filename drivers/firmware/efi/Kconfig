@@ -69,3 +69,7 @@ endmenu
 
 config UEFI_CPER
 	bool
+
+config EFI_SWSUSP_KEYS
+	bool
+	select EFI_VARS
