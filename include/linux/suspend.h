@@ -335,6 +335,9 @@ struct platform_hibernation_ops {
 #define SWSUSP_HMAC		"hmac(sha1)"
 #define SWSUSP_DIGEST_SIZE	20
 
+/* kernel/power/hibernate.c */
+extern int sigenforce;
+
 /* kernel/power/snapshot.c */
 extern void __register_nosave_region(unsigned long b, unsigned long e, int km);
 static inline void __init register_nosave_region(unsigned long b, unsigned long e)
