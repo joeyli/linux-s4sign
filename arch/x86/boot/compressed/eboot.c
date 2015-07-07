@@ -12,6 +12,7 @@
 #include <asm/efi.h>
 #include <asm/setup.h>
 #include <asm/desc.h>
+#include <asm/suspend.h>
 
 #include "../string.h"
 #include "eboot.h"
@@ -1383,6 +1384,60 @@ free_mem_map:
 	return status;
 }
 
+#ifdef CONFIG_HIBERNATE_VERIFICATION
+#define SWSUSP_KEY \
+	((efi_char16_t [10]) { 'S', 'W', 'S', 'U', 'S', 'P', 'K', 'e', 'y', 0 })
+#define SWSUSP_KEY_ATTRIBUTE	(EFI_VARIABLE_NON_VOLATILE | \
+				EFI_VARIABLE_BOOTSERVICE_ACCESS)
+
+static void setup_swsusp_keys(struct boot_params *params)
+{
+	unsigned long key_size, attributes;
+	struct swsusp_keys *swsusp_keys;
+	efi_status_t status;
+
+	/* Allocate setup_data to carry keys */
+	status = efi_call_early(allocate_pool, EFI_LOADER_DATA,
+				sizeof(struct swsusp_keys), &swsusp_keys);
+	if (status != EFI_SUCCESS) {
+		efi_printk(sys_table, "Failed to alloc mem for swsusp_keys\n");
+		return;
+	}
+
+	memset(swsusp_keys, 0, sizeof(struct swsusp_keys));
+
+	status = efi_call_early(get_variable, SWSUSP_KEY, &EFI_SWSUSP_GUID,
+				&attributes, &key_size, swsusp_keys->swsusp_key);
+	if (status == EFI_SUCCESS && attributes != SWSUSP_KEY_ATTRIBUTE) {
+		efi_printk(sys_table, "A swsusp key is not boot service variable\n");
+		memset(swsusp_keys->swsusp_key, 0, SWSUSP_DIGEST_SIZE);
+		status = efi_call_early(set_variable, SWSUSP_KEY,
+					&EFI_SWSUSP_GUID, attributes, 0, NULL);
+		if (status == EFI_SUCCESS) {
+			efi_printk(sys_table, "Cleaned existing swsusp key\n");
+			status = EFI_NOT_FOUND;
+		}
+	}
+
+	if (status != EFI_SUCCESS) {
+		efi_printk(sys_table, "Failed to get existing swsusp key\n");
+
+		efi_get_random_key(sys_table, params, swsusp_keys->swsusp_key,
+				   SWSUSP_DIGEST_SIZE);
+
+		status = efi_call_early(set_variable, SWSUSP_KEY,
+					&EFI_SWSUSP_GUID,
+					SWSUSP_KEY_ATTRIBUTE,
+					SWSUSP_DIGEST_SIZE,
+					swsusp_keys->swsusp_key);
+		if (status != EFI_SUCCESS)
+			efi_printk(sys_table, "Failed to set swsusp key\n");
+	}
+}
+#else
+static void setup_swsusp_keys(struct boot_params *params) {}
+#endif
+
 /*
  * On success we return a pointer to a boot_params structure, and NULL
  * on failure.
@@ -1419,6 +1474,8 @@ struct boot_params *efi_main(struct efi_config *c,
 	setup_graphics(boot_params);
 
 	setup_efi_pci(boot_params);
+
+	setup_swsusp_keys(boot_params);
 
 	status = efi_call_early(allocate_pool, EFI_LOADER_DATA,
 				sizeof(*gdt), (void **)&gdt);
