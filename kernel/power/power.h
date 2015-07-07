@@ -12,6 +12,7 @@ struct swsusp_info {
 	unsigned long		image_pages;
 	unsigned long		pages;
 	unsigned long		size;
+	unsigned long           forward_buff_pfn;
 	u8                      signature[SWSUSP_DIGEST_SIZE];
 } __aligned(PAGE_SIZE);
 
@@ -20,8 +21,13 @@ struct swsusp_info {
 /* arch/x86/power/hibernate_keys.c */
 extern int get_swsusp_key(u8 **skey);
 extern bool swsusp_page_is_keys(struct page *page);
+extern unsigned long get_forward_buff_pfn(void);
+extern void fill_forward_info(void *forward_buff_page, int verify_ret);
+extern void restore_sig_forward_info(void);
 #else
 static inline bool swsusp_page_is_keys(struct page *page) { return false; }
+static inline unsigned long get_forward_buff_pfn(void) { return 0; }
+static inline void restore_sig_forward_info(void) {}
 #endif
 
 /* kernel/power/snapshot.c */
