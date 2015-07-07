@@ -32,6 +32,9 @@
 
 #define SNAPSHOT_MINOR	231
 
+/* Handler will create HIBERNATIONKeyRegen EFI variable when flag raised */
+bool set_hibernation_key_regen_flag;
+
 static struct snapshot_data {
 	struct snapshot_handle handle;
 	int swap;
@@ -338,6 +341,8 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
+		/* clean flag to avoid hibernation key regenerated */
+		set_hibernation_key_regen_flag = false;
 		/*
 		 * Tasks are frozen and the notifiers have been called with
 		 * PM_HIBERNATION_PREPARE
@@ -351,6 +356,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		break;
 
 	case SNAPSHOT_POWER_OFF:
+		set_hibernation_key_regen_flag = false;
 		if (data->platform_support)
 			error = hibernation_platform_enter();
 		break;
@@ -384,6 +390,10 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 				error = -EINVAL;
 			}
 		}
+		break;
+
+	case SNAPSHOT_REGENERATE_KEY:
+		set_hibernation_key_regen_flag = !!arg;
 		break;
 
 	default:
