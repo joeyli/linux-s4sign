@@ -53,6 +53,10 @@ int cmdline_find_option(const char *option, char *buffer, int bufsize);
 int cmdline_find_option_bool(const char *option);
 #endif
 
+#if CONFIG_RANDOMIZE_BASE
+extern u16 i8254(void);
+extern unsigned long get_random_boot(struct boot_params *boot_params);
+#endif
 
 #if CONFIG_RANDOMIZE_BASE
 /* aslr.c */

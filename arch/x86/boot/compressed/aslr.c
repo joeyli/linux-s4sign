@@ -6,59 +6,6 @@
 
 #include <generated/compile.h>
 #include <linux/module.h>
-#include <linux/uts.h>
-#include <linux/utsname.h>
-#include <generated/utsrelease.h>
-
-/* Simplified build-specific string for starting entropy. */
-static const char build_str[] = UTS_RELEASE " (" LINUX_COMPILE_BY "@"
-		LINUX_COMPILE_HOST ") (" LINUX_COMPILER ") " UTS_VERSION;
-
-#define I8254_PORT_CONTROL	0x43
-#define I8254_PORT_COUNTER0	0x40
-#define I8254_CMD_READBACK	0xC0
-#define I8254_SELECT_COUNTER0	0x02
-#define I8254_STATUS_NOTREADY	0x40
-static inline u16 i8254(void)
-{
-	u16 status, timer;
-
-	do {
-		outb(I8254_PORT_CONTROL,
-		     I8254_CMD_READBACK | I8254_SELECT_COUNTER0);
-		status = inb(I8254_PORT_COUNTER0);
-		timer  = inb(I8254_PORT_COUNTER0);
-		timer |= inb(I8254_PORT_COUNTER0) << 8;
-	} while (status & I8254_STATUS_NOTREADY);
-
-	return timer;
-}
-
-static unsigned long rotate_xor(unsigned long hash, const void *area,
-				size_t size)
-{
-	size_t i;
-	unsigned long *ptr = (unsigned long *)area;
-
-	for (i = 0; i < size / sizeof(hash); i++) {
-		/* Rotate by odd number of bits and XOR. */
-		hash = (hash << ((sizeof(hash) * 8) - 7)) | (hash >> 7);
-		hash ^= ptr[i];
-	}
-
-	return hash;
-}
-
-/* Attempt to create a simple but unpredictable starting entropy. */
-static unsigned long get_random_boot(void)
-{
-	unsigned long hash = 0;
-
-	hash = rotate_xor(hash, build_str, sizeof(build_str));
-	hash = rotate_xor(hash, real_mode, sizeof(*real_mode));
-
-	return hash;
-}
 
 static unsigned long get_random_long(void)
 {
@@ -67,7 +14,7 @@ static unsigned long get_random_long(void)
 #else
 	const unsigned long mix_const = 0x3f39e593UL;
 #endif
-	unsigned long raw, random = get_random_boot();
+	unsigned long raw, random = get_random_boot(real_mode);
 	bool use_i8254 = true;
 
 	debug_putstr("KASLR using");
