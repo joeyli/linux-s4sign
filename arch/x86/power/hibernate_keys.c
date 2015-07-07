@@ -48,6 +48,20 @@ int get_swsusp_key(u8 **skey)
 	return swsusp_keys->skey_status;
 }
 
+bool swsusp_page_is_keys(struct page *page)
+{
+	bool ret = false;
+
+	if (!swsusp_keys || swsusp_keys->skey_status)
+		return ret;
+
+	ret = (page_to_pfn(page) == page_to_pfn(virt_to_page(swsusp_keys)));
+	if (ret)
+		pr_info("PM: Avoid snapshot the page of swsusp key.\n");
+
+	return ret;
+}
+
 static int __init init_hibernate_keys(void)
 {
 	struct swsusp_keys *keys;

@@ -19,6 +19,9 @@ struct swsusp_info {
 #ifdef CONFIG_HIBERNATE_VERIFICATION
 /* arch/x86/power/hibernate_keys.c */
 extern int get_swsusp_key(u8 **skey);
+extern bool swsusp_page_is_keys(struct page *page);
+#else
+static inline bool swsusp_page_is_keys(struct page *page) { return false; }
 #endif
 
 /* kernel/power/snapshot.c */
