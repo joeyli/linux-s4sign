@@ -175,6 +175,8 @@ struct efi_config {
 	u64 handle_protocol;
 	u64 exit_boot_services;
 	u64 text_output;
+	u64 get_variable;
+	u64 set_variable;
 	efi_status_t (*call)(unsigned long, ...);
 	bool is64;
 } __packed;
