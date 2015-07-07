@@ -30,12 +30,14 @@ static void setup_boot_services##bits(struct efi_config *c)		\
 {									\
 	efi_system_table_##bits##_t *table;				\
 	efi_boot_services_##bits##_t *bt;				\
+	efi_runtime_services_##bits##_t *rt;				\
 									\
 	table = (typeof(table))sys_table;				\
 									\
 	c->text_output = table->con_out;				\
 									\
 	bt = (typeof(bt))(unsigned long)(table->boottime);		\
+	rt = (typeof(rt))(unsigned long)(table->runtime);		\
 									\
 	c->allocate_pool = bt->allocate_pool;				\
 	c->allocate_pages = bt->allocate_pages;				\
@@ -45,6 +47,8 @@ static void setup_boot_services##bits(struct efi_config *c)		\
 	c->locate_handle = bt->locate_handle;				\
 	c->handle_protocol = bt->handle_protocol;			\
 	c->exit_boot_services = bt->exit_boot_services;			\
+	c->get_variable = rt->get_variable;				\
+	c->set_variable = rt->set_variable;				\
 }
 BOOT_SERVICES(32);
 BOOT_SERVICES(64);
