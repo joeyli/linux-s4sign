@@ -7,8 +7,12 @@
 #ifdef CONFIG_HIBERNATE_VERIFICATION
 #include <linux/suspend.h>
 
+extern void parse_swsusp_keys(u64 phys_addr, u32 data_len);
+
 struct swsusp_keys {
 	unsigned long skey_status;
 	u8 swsusp_key[SWSUSP_DIGEST_SIZE];
 };
+#else
+static inline void parse_swsusp_keys(u64 phys_addr, u32 data_len) {}
 #endif

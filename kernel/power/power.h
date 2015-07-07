@@ -16,6 +16,11 @@ struct swsusp_info {
 } __aligned(PAGE_SIZE);
 
 #ifdef CONFIG_HIBERNATION
+#ifdef CONFIG_HIBERNATE_VERIFICATION
+/* arch/x86/power/hibernate_keys.c */
+extern int get_swsusp_key(u8 **skey);
+#endif
+
 /* kernel/power/snapshot.c */
 extern void __init hibernate_reserved_size_init(void);
 extern void __init hibernate_image_size_init(void);
