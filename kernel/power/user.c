@@ -24,6 +24,7 @@
 #include <linux/console.h>
 #include <linux/cpu.h>
 #include <linux/freezer.h>
+#include <linux/efi.h>
 
 #include <asm/uaccess.h>
 
@@ -390,7 +391,10 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		break;
 
 	case SNAPSHOT_REGENERATE_KEY:
-		set_swsusp_key_regen_flag = !!arg;
+		if (!efi_enabled(EFI_BOOT))
+			error = -ENODEV;
+		else
+			set_swsusp_key_regen_flag = !!arg;
 		break;
 
 	default:

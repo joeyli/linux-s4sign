@@ -29,6 +29,7 @@
 #include <linux/slab.h>
 #include <linux/compiler.h>
 #include <linux/ktime.h>
+#include <linux/efi.h>
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -1469,8 +1470,11 @@ error_digest:
 forward_ret:
 	if (ret)
 		pr_warn("PM: Signature verifying failed: %d\n", ret);
-	/* forward check result when verifying pass or not enforce verifying */
-	if (!ret || !sigenforce) {
+	if (ret == -ENODEV && !efi_enabled(EFI_BOOT)) {
+		pr_warn("PM: Bypass verification on non-EFI machine\n");
+		ret = 0;
+	} else if (!ret || !sigenforce) {
+		/* forward check result when verifying pass or not enforce verifying */
 		snapshot_fill_sig_forward_info(ret);
 		ret = 0;
 	}
