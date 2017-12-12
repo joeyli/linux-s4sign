@@ -691,6 +691,7 @@ int hibernate(void)
 		pm_pr_dbg("Hibernation not available.\n");
 		return -EPERM;
 	}
+	efi_skey_stop_regen();
 
 	lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
