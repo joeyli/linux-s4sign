@@ -952,6 +952,8 @@ struct boot_params *efi_main(struct efi_config *c,
 
 	setup_efi_pci(boot_params);
 
+	efi_setup_root_key(sys_table, boot_params);
+
 	setup_quirks(boot_params);
 
 	status = efi_call_early(allocate_pool, EFI_LOADER_DATA,

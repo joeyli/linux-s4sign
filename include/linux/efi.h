@@ -1677,4 +1677,18 @@ efi_status_to_str(efi_status_t status)
 	return "";
 }
 
+#ifdef CONFIG_EFI_SECURE_KEY
+#define EFI_SECURE_GUID \
+	EFI_GUID(0x8c136d32, 0x039a, 0x4016, 0x8b, 0xb4, 0x9e, 0x98, 0x5e, 0x62, 0x78, 0x6f)
+#define ROOT_KEY_SIZE        64
+struct efi_rkey_setup_data {
+	bool is_secure;
+	unsigned long detect_status;
+	unsigned long final_status;
+	unsigned long key_size;
+	u8 root_key[ROOT_KEY_SIZE];
+};
+#else
+#define ROOT_KEY_SIZE        0
+#endif /* CONFIG_EFI_SECURE_KEY */
 #endif /* _LINUX_EFI_H */

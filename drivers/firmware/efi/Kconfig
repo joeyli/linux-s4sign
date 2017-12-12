@@ -164,6 +164,29 @@ config RESET_ATTACK_MITIGATION
 	  have been evicted, since otherwise it will trigger even on clean
 	  reboots.
 
+config EFI_SECURE_KEY
+	bool "EFI secure key"
+	default n
+	depends on KEYS && EFI_STUB && X86
+        select CRYPTO
+        select CRYPTO_HMAC
+        select CRYPTO_AES
+        select CRYPTO_CBC
+        select CRYPTO_SHA256
+        select CRYPTO_RNG
+	help
+	  This option enables the EFI secure key functions. EFI boot stub
+	  will generate a 512-bit random number that it can be used as
+	  a root key for encryption and authentication. The secure key will
+	  be kept in EFI boot service variable which is secure when secure
+	  boot is enabled.
+	  At runtime, the ERK (efi root key) can be used to encrypt and
+	  authenticate other random number for creating EFI secure key. The
+	  EFI secure key can be a master key type for encrypted key. It
+	  can be used by EVM and hibernation.
+
+	  If unsure, say N.
+
 endmenu
 
 config UEFI_CPER

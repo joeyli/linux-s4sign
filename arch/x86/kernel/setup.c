@@ -420,6 +420,9 @@ static void __init parse_setup_data(void)
 		case SETUP_EFI:
 			parse_efi_setup(pa_data, data_len);
 			break;
+		case SETUP_EFI_ROOT_KEY:
+			parse_efi_root_key_setup(pa_data, data_len);
+			break;
 		default:
 			break;
 		}
