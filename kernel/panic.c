@@ -325,6 +325,7 @@ const struct taint_flag taint_flags[TAINT_FLAGS_COUNT] = {
 	{ 'L', ' ', false },	/* TAINT_SOFTLOCKUP */
 	{ 'K', ' ', true },	/* TAINT_LIVEPATCH */
 	{ 'X', ' ', true },	/* TAINT_AUX */
+	{ 'H', ' ', false },	/* TAINT_UNSAFE_HIBERNATE */
 };
 
 /**
@@ -347,6 +348,7 @@ const struct taint_flag taint_flags[TAINT_FLAGS_COUNT] = {
  *  'L' - A soft lockup has previously occurred.
  *  'K' - Kernel has been live patched.
  *  'X' - Auxiliary taint, for distros' use.
+ *  'H' - System restored from unsafe hibernate snapshot image.
  *
  *	The string is overwritten by the next call to print_tainted().
  */
