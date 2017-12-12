@@ -1096,7 +1096,8 @@ static int load_image(struct swap_map_handle *handle,
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
-
+		if (!ret)
+			ret = snapshot_image_verify();
 		snapshot_init_trampoline();
 		/* clean the hidden area in boot kernel */
 		clean_hidden_area();
@@ -1452,6 +1453,8 @@ out_finish:
 				}
 			}
 		}
+		if (!ret)
+			ret = snapshot_image_verify();
 		snapshot_init_trampoline();
 		/* clean the hidden area in boot kernel */
 		clean_hidden_area();
