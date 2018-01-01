@@ -44,6 +44,7 @@
 #include <asm/io.h>
 #ifdef CONFIG_HIBERNATE_VERIFICATION
 #include <crypto/hash.h>
+#include <keys/encrypted-type.h>
 #endif
 
 #include "power.h"
@@ -1311,7 +1312,7 @@ static struct page *saveable_page(struct zone *zone, unsigned long pfn)
 
 	BUG_ON(PageHighMem(page));
 
-	if (page_is_hidden(page))
+	if (page_is_hidden(page))		//TODO: filter out s4 sign key
 		return NULL;
 
 	if (swsusp_page_is_forbidden(page) || swsusp_page_is_free(page))
@@ -1431,15 +1432,14 @@ static unsigned int nr_copy_pages;
 static void **h_buf;
 
 #ifdef CONFIG_HIBERNATE_VERIFICATION
-/*
- * Signature of snapshot image
- */
+
+/* Signature of snapshot image */
 static u8 signature[SNAPSHOT_DIGEST_SIZE];
 
 /* Keep the signature verification result for trampoline */
 static int sig_verify_ret;
 
-/* enforce the snapshot must be signed */
+/* Enforce the snapshot must be signed */
 #ifdef CONFIG_HIBERNATE_VERIFICATION_FORCE
 static bool sig_enforce = true;
 #else
@@ -1456,6 +1456,76 @@ int snapshot_is_enforce_verify(void)
 	return sig_enforce;
 }
 
+#define S4_SET_SIGNKEY 0
+static unsigned long s4_set_key_flags;
+
+/* HMAC key for signing snapshot */
+#define S4SIGNKEY "s4-signkey"
+#define MAX_SKEY_SIZE 64
+static unsigned char s4signkey[MAX_SKEY_SIZE];		//TODO: filter out in snapshot
+
+bool snapshot_has_signkey(void)
+{
+	return test_bit(S4_SET_SIGNKEY, &s4_set_key_flags) ||
+	       !!get_efi_secret_key();
+}
+
+int snapshot_set_signkey(void)
+{
+	struct key *s4_signkey;
+	struct encrypted_key_payload *ekp;
+	int ret;
+
+	ret = -EBUSY;
+	if (test_and_set_bit(S4_SET_SIGNKEY, &s4_set_key_flags))
+		goto busy;
+
+	ret = -ENOENT;
+	s4_signkey = request_key(&key_type_encrypted, S4SIGNKEY, NULL);
+	if (IS_ERR(s4_signkey))
+		goto inval;
+
+	/* TODO: the master key of encrypted key can only be a trusted key
+	 * when kernel locked down
+	 */
+	down_read(&s4_signkey->sem);
+	ekp = s4_signkey->payload.data[0];
+
+	ret = -EINVAL;
+	if (ekp->decrypted_datalen > MAX_SKEY_SIZE)
+		goto inval;
+
+	memcpy(s4signkey, ekp->decrypted_data, ekp->decrypted_datalen);
+
+	/* remove plain text */
+	memset(ekp->decrypted_data, 0, ekp->decrypted_datalen);
+	up_read(&s4_signkey->sem);
+	key_put(s4_signkey);
+
+	pr_info("s4signkey:\n");				// TODO: kill
+	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_NONE,
+			16, 1, s4signkey, MAX_SKEY_SIZE, 0);
+	pr_info("decrypted_data:\n");				//TODO: kill
+	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_NONE,
+			16, 1, ekp->decrypted_data, ekp->decrypted_datalen, 0);
+	return 0;
+
+inval:
+	clear_bit(S4_SET_SIGNKEY, &s4_set_key_flags);
+busy:
+	pr_err("key initialization failed: %d\n", ret);
+	return ret;
+}
+
+static u8 *get_sign_key(void)
+{
+	/* If s4signkey did not set, fallback to EFI key */
+	if (test_bit(S4_SET_SIGNKEY, &s4_set_key_flags))
+		return s4signkey;
+	else
+		return get_efi_secret_key();
+}
+
 static u8 *s4_verify_digest;
 static struct shash_desc *s4_verify_desc;
 
@@ -1466,9 +1536,9 @@ int swsusp_prepare_hash(bool may_sleep)
 	size_t digest_size, desc_size;
 	int ret;
 
-	key = get_efi_secret_key();
+	key = get_sign_key();
 	if (!key) {
-		pr_warn_once("secret key is invalid\n");
+		pr_warn_once("secret key for signing is invalid\n");
 		return (sig_enforce) ? -EINVAL : 0;
 	}
 
@@ -2370,7 +2440,7 @@ int snapshot_create_trampoline(void)
 void snapshot_init_trampoline(void)
 {
 	struct trampoline *t;
-	void *efi_secret_key;
+	void *sign_key;
 
 	if (!trampoline_pfn || !trampoline_buff) {
 		pr_err("Did not find trampoline buffer, pfn: %ld\n",
@@ -2384,10 +2454,10 @@ void snapshot_init_trampoline(void)
 
 	init_sig_verify(t);
 
-	efi_secret_key = get_efi_secret_key();
-	if (efi_secret_key) {
+	sign_key = get_sign_key();
+	if (sign_key) {
 		memset(t->secret_key, 0, SECRET_KEY_SIZE);
-		memcpy(t->secret_key, efi_secret_key, SECRET_KEY_SIZE);
+		memcpy(t->secret_key, sign_key, SECRET_KEY_SIZE);
 		t->secret_key_valid = true;
 	}
 	pr_info("Hibernation trampoline page prepared\n");

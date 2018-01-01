@@ -77,7 +77,7 @@ bool hibernation_available(void)
 
 	if (snapshot_is_enforce_verify()) {
 		snapshot_set_enforce_verify();
-		if (get_efi_secret_key())
+		if (snapshot_has_signkey())
 			return true;
 		else
 			pr_warn("the secret key is invalid\n");
@@ -1064,6 +1064,35 @@ static ssize_t disk_store(struct kobject *kobj, struct kobj_attribute *attr,
 
 power_attr(disk);
 
+static ssize_t disk_key_show(struct kobject *kobj, struct kobj_attribute *attr,
+			 char *buf)
+{
+	if (snapshot_has_signkey())
+		return sprintf(buf, "[signkey]\n");
+	else
+		return sprintf(buf, "[nokey]\n");
+}
+
+static ssize_t disk_key_store(struct kobject *kobj, struct kobj_attribute *attr,
+			  const char *buf, size_t n)
+{
+	int ret = 0;
+	int len;
+	char *p;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	p = memchr(buf, '\n', n);
+	len = p ? p - buf : n;
+	//TODO: check p
+	ret = snapshot_set_signkey();
+
+	return ret ? ret : n;
+}
+
+power_attr(disk_key);
+
 static ssize_t resume_show(struct kobject *kobj, struct kobj_attribute *attr,
 			   char *buf)
 {
@@ -1145,6 +1174,7 @@ power_attr(reserved_size);
 
 static struct attribute * g[] = {
 	&disk_attr.attr,
+	&disk_key_attr.attr,
 	&resume_attr.attr,
 	&image_size_attr.attr,
 	&reserved_size_attr.attr,
