@@ -4,6 +4,7 @@
 #include <linux/utsname.h>
 #include <linux/freezer.h>
 #include <linux/compiler.h>
+#include <crypto/aes.h>
 
 /* HMAC algorithm for hibernate snapshot signature */
 #define SNAPSHOT_HMAC	"hmac(sha512)"
@@ -18,6 +19,7 @@ struct swsusp_info {
 	unsigned long		pages;
 	unsigned long		size;
 	unsigned long           trampoline_pfn;
+	u8			iv[AES_BLOCK_SIZE];
 	u8                      signature[SNAPSHOT_DIGEST_SIZE];
 } __aligned(PAGE_SIZE);
 
@@ -169,12 +171,16 @@ extern void snapshot_free_trampoline(void);
 extern int snapshot_image_verify(void);
 extern int swsusp_prepare_hash(bool may_sleep);
 extern void swsusp_finish_hash(void);
+extern int swsusp_prepare_crypto(bool may_sleep, bool create_iv);
+extern void swsusp_finish_crypto(void);
 extern void snapshot_set_enforce_verify(void);
 extern int snapshot_is_enforce_verify(void);
 #else
 static inline int snapshot_image_verify(void) { return 0; }
 static inline int swsusp_prepare_hash(bool may_sleep) { return 0; }
 static inline void swsusp_finish_hash(void) {}
+static inline int swsusp_prepare_crypto(bool may_sleep, bool create_iv) { return 0; }
+static inline void swsusp_finish_crypto(void) {}
 static inline void snapshot_set_enforce_verify(void) {}
 static inline int snapshot_is_enforce_verify(void) {return 0;}
 #endif

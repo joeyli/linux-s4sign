@@ -43,7 +43,11 @@
 #include <asm/tlbflush.h>
 #include <asm/io.h>
 #ifdef CONFIG_HIBERNATE_VERIFICATION
+#include <linux/random.h>
+#include <linux/scatterlist.h>
+#include <crypto/aes.h>
 #include <crypto/hash.h>
+#include <crypto/skcipher.h>
 #endif
 
 #include "power.h"
@@ -1456,6 +1460,74 @@ int snapshot_is_enforce_verify(void)
 	return sig_enforce;
 }
 
+static struct skcipher_request *sk_req;
+static u8 iv[AES_BLOCK_SIZE];
+static void *c_buffer;
+
+int swsusp_prepare_crypto(bool may_sleep, bool create_iv)
+{
+	struct crypto_skcipher *tfm;
+	u8 *key;
+	int ret = 0;
+
+	key = get_efi_secret_key();
+	if (!key) {
+		pr_warn_once("secret key is invalid\n");
+		return (sig_enforce) ? -EINVAL : 0;
+	}
+
+	c_buffer = (void *)get_zeroed_page(GFP_KERNEL);
+	if (!c_buffer) {
+		pr_err("Allocate crypto buffer page failed\n");
+		return -ENOMEM;
+	}
+
+	tfm = crypto_alloc_skcipher("ctr(aes)", 0, CRYPTO_ALG_ASYNC);
+	if (IS_ERR(tfm)) {
+		ret = PTR_ERR(tfm);
+		pr_err("failed to allocate skcipher (%d)\n", ret);
+		goto alloc_fail;
+	}
+
+	ret = crypto_skcipher_setkey(tfm, key, 32);
+	if (ret) {
+		pr_err("failed to setkey (%d)\n", ret);
+		goto set_fail;
+	}
+
+	sk_req = skcipher_request_alloc(tfm, GFP_KERNEL);
+	if (!sk_req) {
+		pr_err("failed to allocate request\n");
+		ret = -ENOMEM;
+		goto set_fail;
+	}
+	if (may_sleep)
+		skcipher_request_set_callback(sk_req, CRYPTO_TFM_REQ_MAY_SLEEP,
+					      NULL, NULL);
+	if (create_iv)
+		get_random_bytes(iv, AES_BLOCK_SIZE);
+
+	return 0;
+
+set_fail:
+	crypto_free_skcipher(tfm);
+alloc_fail:
+	__free_page(c_buffer);
+
+	return ret;
+}
+
+void swsusp_finish_crypto(void)
+{
+	struct crypto_skcipher *tfm = crypto_skcipher_reqtfm(sk_req);
+
+	skcipher_request_zero(sk_req);
+	skcipher_request_free(sk_req);
+	crypto_free_skcipher(tfm);
+	__free_page(c_buffer);
+	sk_req = NULL;
+}
+
 static u8 *s4_verify_digest;
 static struct shash_desc *s4_verify_desc;
 
@@ -1521,6 +1593,42 @@ void swsusp_finish_hash(void)
 	s4_verify_digest = NULL;
 }
 
+static int encrypt_data_page(void *hash_buffer)
+{
+	struct scatterlist src[1], dst[1];
+	u8 iv_tmp[AES_BLOCK_SIZE];
+	int ret = 0;
+
+	memcpy(iv_tmp, iv, sizeof(iv));
+	sg_init_one(src, hash_buffer, PAGE_SIZE);
+	sg_init_one(dst, c_buffer, PAGE_SIZE);
+	skcipher_request_set_crypt(sk_req, src, dst, PAGE_SIZE, iv_tmp);
+	ret = crypto_skcipher_encrypt(sk_req);
+
+	copy_page(hash_buffer, c_buffer);
+	memset(c_buffer, 0, PAGE_SIZE);
+
+	return ret;
+}
+
+static int decrypt_data_page(void *encrypted_page)
+{
+	struct scatterlist src[1], dst[1];
+	u8 iv_tmp[AES_BLOCK_SIZE];
+	int ret = 0;
+
+	memcpy(iv_tmp, iv, sizeof(iv));
+	sg_init_one(src, encrypted_page, PAGE_SIZE);
+	sg_init_one(dst, c_buffer, PAGE_SIZE);
+	skcipher_request_set_crypt(sk_req, src, dst, PAGE_SIZE, iv_tmp);
+	ret = crypto_skcipher_decrypt(sk_req);
+
+	copy_page(encrypted_page, c_buffer);
+	memset(c_buffer, 0, PAGE_SIZE);
+
+	return ret;
+}
+
 int snapshot_image_verify(void)
 {
 	int ret, i;
@@ -1540,22 +1648,34 @@ int snapshot_image_verify(void)
 	if (ret || !s4_verify_desc)
 		goto error_prep;
 
+	ret = swsusp_prepare_crypto(true, false);
+	if (ret)
+		goto error_prep;
+
 	for (i = 0; i < nr_copy_pages; i++) {
 		ret = crypto_shash_update(s4_verify_desc, *(h_buf + i), PAGE_SIZE);
 		if (ret)
-			goto error_shash;
+			goto error_shash_crypto;
 	}
 
 	ret = crypto_shash_final(s4_verify_desc, s4_verify_digest);
 	if (ret)
-		goto error_shash;
+		goto error_shash_crypto;
 
 	pr_debug("Signature %*phN\n", SNAPSHOT_DIGEST_SIZE, signature);
 	pr_debug("Digest    %*phN\n", SNAPSHOT_DIGEST_SIZE, s4_verify_digest);
 	if (memcmp(signature, s4_verify_digest, SNAPSHOT_DIGEST_SIZE))
 		ret = -EKEYREJECTED;
 
- error_shash:
+	/* Decrypt pages in h_buf */
+	for (i = 0; i < nr_copy_pages; i++) {
+		ret = decrypt_data_page(*(h_buf + i));
+		if (ret)
+			goto error_shash_crypto;
+	}
+
+ error_shash_crypto:
+	swsusp_finish_crypto();
 	swsusp_finish_hash();
 
  error_prep:
@@ -1586,7 +1706,7 @@ __copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 		dst_pfn = memory_bm_next_pfn(copy_bm);
 		copy_data_page(dst_pfn, pfn);
 
-		/* Generate digest */
+		/* Setup buffer */
 		d_page = pfn_to_page(dst_pfn);
 		if (PageHighMem(d_page)) {
 			void *kaddr = kmap_atomic(d_page);
@@ -1598,6 +1718,10 @@ __copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 			hash_buffer = page_address(d_page);
 		}
 
+		/* Encrypt hashed page */
+		encrypt_data_page(hash_buffer);
+
+		/* Generate digest */
 		if (!s4_verify_desc)
 			continue;
 
@@ -2331,6 +2455,7 @@ static int init_header(struct swsusp_info *info)
 	info->size = info->pages;
 	info->size <<= PAGE_SHIFT;
 	info->trampoline_pfn = page_to_pfn(virt_to_page(trampoline_virt));
+	memcpy(info->iv, iv, AES_BLOCK_SIZE);
 	init_signature(info);
 	return init_header_complete(info);
 }
@@ -2586,6 +2711,7 @@ static int load_header(struct swsusp_info *info)
 		nr_copy_pages = info->image_pages;
 		nr_meta_pages = info->pages - info->image_pages - 1;
 		trampoline_pfn = info->trampoline_pfn;
+		memcpy(iv, info->iv, AES_BLOCK_SIZE);
 		load_signature(info);
 	}
 	return error;
