@@ -37,4 +37,16 @@ extern struct key_type key_type_efi;
 extern long efi_read_blob(const struct key *key, char __user *buffer,
 			  char *kbuffer, size_t buflen);
 
+#if defined(CONFIG_EFI_SECRET_KEY)		/* TODO: move config to key subsystem? */
+extern struct key *request_efi_key(const char *master_desc,
+				   const u8 **master_key, size_t *master_keylen);
+#else
+static inline struct key *request_efi_key(const char *master_desc,
+					      const u8 **master_key,
+					      size_t *master_keylen)
+{
+	return ERR_PTR(-EOPNOTSUPP);
+}
+#endif
+
 #endif /* _KEYS_EFI_TYPE_H */
