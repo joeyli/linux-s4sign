@@ -676,6 +676,27 @@ struct key_type key_type_efi = {
 };
 EXPORT_SYMBOL_GPL(key_type_efi);
 
+/*
+ * request_efi_key - request the efi key
+ */
+struct key *request_efi_key(const char *master_desc,
+			    const u8 **master_key, size_t *master_keylen)
+{
+	struct efi_key_payload *epayload;
+	struct key *ekey;
+
+	ekey = request_key(&key_type_efi, master_desc, NULL);
+	if (IS_ERR(ekey))
+		goto error;
+
+	down_read(&ekey->sem);
+	epayload = ekey->payload.data[0];
+	*master_key = epayload->key;
+	*master_keylen = epayload->key_len;
+error:
+	return ekey;
+}
+
 static int __init init_efi_secure_key(void)
 {
 	int ret;

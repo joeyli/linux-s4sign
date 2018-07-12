@@ -24,6 +24,7 @@
 #include <keys/user-type.h>
 #include <keys/trusted-type.h>
 #include <keys/encrypted-type.h>
+#include <keys/efi-type.h>
 #include <linux/key-type.h>
 #include <linux/random.h>
 #include <linux/rcupdate.h>
@@ -40,6 +41,7 @@
 
 static const char KEY_TRUSTED_PREFIX[] = "trusted:";
 static const char KEY_USER_PREFIX[] = "user:";
+static const char KEY_EFI_PREFIX[] = "efi:";
 static const char hash_alg[] = "sha256";
 static const char hmac_alg[] = "hmac(sha256)";
 static const char blkcipher_alg[] = "cbc(aes)";
@@ -50,6 +52,7 @@ static int blksize;
 
 #define KEY_TRUSTED_PREFIX_LEN (sizeof (KEY_TRUSTED_PREFIX) - 1)
 #define KEY_USER_PREFIX_LEN (sizeof (KEY_USER_PREFIX) - 1)
+#define KEY_EFI_PREFIX_LEN (sizeof (KEY_EFI_PREFIX) - 1)
 #define KEY_ECRYPTFS_DESC_LEN 16
 #define HASH_SIZE SHA256_DIGEST_SIZE
 #define MAX_DATA_SIZE 4096
@@ -142,6 +145,8 @@ static int valid_master_desc(const char *new_desc, const char *orig_desc)
 		prefix_len = KEY_TRUSTED_PREFIX_LEN;
 	else if (!strncmp(new_desc, KEY_USER_PREFIX, KEY_USER_PREFIX_LEN))
 		prefix_len = KEY_USER_PREFIX_LEN;
+	else if (!strncmp(new_desc, KEY_EFI_PREFIX, KEY_EFI_PREFIX_LEN))
+		prefix_len = KEY_EFI_PREFIX_LEN;
 	else
 		return -EINVAL;
 
@@ -433,6 +438,11 @@ static struct key *request_master_key(struct encrypted_key_payload *epayload,
 			    KEY_USER_PREFIX_LEN)) {
 		mkey = request_user_key(epayload->master_desc +
 					KEY_USER_PREFIX_LEN,
+					master_key, master_keylen);
+	} else if (!strncmp(epayload->master_desc, KEY_EFI_PREFIX,
+			    KEY_EFI_PREFIX_LEN)) {
+		mkey = request_efi_key(epayload->master_desc +
+					KEY_EFI_PREFIX_LEN,
 					master_key, master_keylen);
 	} else
 		goto out;

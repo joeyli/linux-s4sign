@@ -39,11 +39,18 @@ extern struct key_type key_type_efi;
 #if defined(CONFIG_EFI_SECURE_KEY)
 extern long efi_read_blob(const struct key *key, char __user *buffer,
 			  char *kbuffer, size_t buflen);
+extern struct key *request_efi_key(const char *master_desc,
+			const u8 **master_key, size_t *master_keylen);
 #else
 inline long efi_read_blob(const struct key *key, char __user *buffer,
 			  char *kbuffer, size_t buflen)
 {
 	return 0;
+}
+static inline struct key *request_efi_key(const char *master_desc,
+			const u8 **master_key, size_t *master_keylen)
+{
+	return ERR_PTR(-EOPNOTSUPP);
 }
 #endif
 
