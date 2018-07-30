@@ -713,9 +713,15 @@ int hibernate(void)
 	}
 	efi_skey_stop_regen();
 
-	error = snapshot_create_trampoline();
+	error = init_snapshot_key();
 	if (error)
 		return error;
+
+	error = snapshot_create_trampoline();
+	if (error) {
+		clean_snapshot_key();
+		return error;
+	}
 
 	/* using EFI secret key to encrypt hidden area */
 	secret_key = get_efi_secret_key();
@@ -724,6 +730,7 @@ int hibernate(void)
 		if (error) {
 			pr_err("Encrypt hidden area failed: %d\n", error);
 			snapshot_free_trampoline();
+			clean_snapshot_key();
 			return error;
 		}
 	}
@@ -807,6 +814,7 @@ int hibernate(void)
 	atomic_inc(&snapshot_device_available);
  Unlock:
 	unlock_system_sleep();
+	clean_snapshot_key();
 	pr_info("hibernation exit\n");
 
 	return error;

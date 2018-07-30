@@ -1440,6 +1440,9 @@ static void **h_buf;
  */
 static u8 signature[SNAPSHOT_DIGEST_SIZE];
 
+/* the data blob of encrypted snapshot key */
+static u8 encrypted_key_blob[KEY_BLOB_BUFF_LEN];
+
 /* Keep the signature verification result for trampoline */
 static int sig_verify_ret;
 
@@ -1467,11 +1470,11 @@ static void *c_buffer;
 int swsusp_prepare_crypto(bool may_sleep, bool create_iv)
 {
 	struct crypto_skcipher *tfm;
-	u8 *key;
+	char enc_key[DERIVED_KEY_SIZE];
 	int ret = 0;
 
-	key = get_efi_secret_key();
-	if (!key) {
+	ret = get_snapshot_enc_key(enc_key, may_sleep);
+	if (ret) {
 		pr_warn_once("secret key is invalid\n");
 		return (sig_enforce) ? -EINVAL : 0;
 	}
@@ -1489,7 +1492,7 @@ int swsusp_prepare_crypto(bool may_sleep, bool create_iv)
 		goto alloc_fail;
 	}
 
-	ret = crypto_skcipher_setkey(tfm, key, 32);
+	ret = crypto_skcipher_setkey(tfm, enc_key, AES_MAX_KEY_SIZE);
 	if (ret) {
 		pr_err("failed to setkey (%d)\n", ret);
 		goto set_fail;
@@ -1533,14 +1536,14 @@ static struct shash_desc *s4_verify_desc;
 
 int swsusp_prepare_hash(bool may_sleep)
 {
+	char auth_key[DERIVED_KEY_SIZE];
 	struct crypto_shash *tfm;
-	u8 *key;
 	size_t digest_size, desc_size;
 	int ret;
 
-	key = get_efi_secret_key();
-	if (!key) {
-		pr_warn_once("secret key is invalid\n");
+	ret = get_snapshot_auth_key(auth_key, may_sleep);
+	if (ret) {
+		pr_warn_once("auth key is invalid\n");
 		return (sig_enforce) ? -EINVAL : 0;
 	}
 
@@ -1550,7 +1553,7 @@ int swsusp_prepare_hash(bool may_sleep)
 		return PTR_ERR(tfm);
 	}
 
-	ret = crypto_shash_setkey(tfm, key, SNAPSHOT_DIGEST_SIZE);
+	ret = crypto_shash_setkey(tfm, auth_key, DERIVED_KEY_SIZE);
 	if (ret) {
 		pr_err("Set HMAC key failed\n");
 		goto error;
@@ -1558,7 +1561,7 @@ int swsusp_prepare_hash(bool may_sleep)
 
 	desc_size = crypto_shash_descsize(tfm) + sizeof(*s4_verify_desc);
 	digest_size = crypto_shash_digestsize(tfm);
-	s4_verify_digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+	s4_verify_digest = kzalloc(digest_size + desc_size, GFP_KERNEL);	//TODO: check may_sleep ATOMIC
 	if (!s4_verify_digest) {
 		pr_err("Allocate digest failed\n");
 		ret = -ENOMEM;
@@ -1644,6 +1647,10 @@ int snapshot_image_verify(void)
 		goto error_prep;
 	}
 
+	ret = init_snapshot_key_by_blob(encrypted_key_blob);
+	if (ret)
+		goto error_prep;
+
 	ret = swsusp_prepare_hash(true);
 	if (ret || !s4_verify_desc)
 		goto error_prep;
@@ -1677,6 +1684,7 @@ int snapshot_image_verify(void)
  error_shash_crypto:
 	swsusp_finish_crypto();
 	swsusp_finish_hash();
+	clean_snapshot_key();
 
  error_prep:
 	vfree(h_buf);
@@ -1761,6 +1769,12 @@ static void load_signature(struct swsusp_info *info)
 	memcpy(signature, info->signature, SNAPSHOT_DIGEST_SIZE);
 }
 
+static void load_snapshot_key_blob(struct swsusp_info *info)
+{
+	memset(encrypted_key_blob, 0, KEY_BLOB_BUFF_LEN);
+	memcpy(encrypted_key_blob, info->encrypted_key_blob, KEY_BLOB_BUFF_LEN);
+}
+
 static void init_sig_verify(struct trampoline *t)
 {
 	t->sig_enforce = sig_enforce;
@@ -1809,6 +1823,7 @@ __copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 static inline void alloc_h_buf(void) {}
 static void init_signature(struct swsusp_info *info) {}
 static void load_signature(struct swsusp_info *info) {}
+static void load_snapshot_key_blob(struct swsusp_info *info) {}
 static void init_sig_verify(struct trampoline *t) {}
 static void handle_sig_verify(struct trampoline *t) {}
 #endif /* CONFIG_HIBERNATE_VERIFICATION */
@@ -2457,6 +2472,7 @@ static int init_header(struct swsusp_info *info)
 	info->trampoline_pfn = page_to_pfn(virt_to_page(trampoline_virt));
 	memcpy(info->iv, iv, AES_BLOCK_SIZE);
 	init_signature(info);
+	get_encrypted_snapshot_key_blob(info->encrypted_key_blob);
 	return init_header_complete(info);
 }
 
@@ -2713,6 +2729,7 @@ static int load_header(struct swsusp_info *info)
 		trampoline_pfn = info->trampoline_pfn;
 		memcpy(iv, info->iv, AES_BLOCK_SIZE);
 		load_signature(info);
+		load_snapshot_key_blob(info);
 	}
 	return error;
 }
