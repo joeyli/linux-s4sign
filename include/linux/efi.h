@@ -1687,6 +1687,7 @@ efi_status_to_str(efi_status_t status)
 					EFI_VARIABLE_BOOTSERVICE_ACCESS | \
 					EFI_VARIABLE_RUNTIME_ACCESS)
 struct efi_skey_setup_data {
+	bool is_secure;
 	unsigned long detect_status;
 	unsigned long final_status;
 	unsigned long key_size;

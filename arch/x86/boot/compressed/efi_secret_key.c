@@ -230,6 +230,8 @@ void efi_setup_secret_key(efi_system_table_t *sys_table, struct boot_params *par
 		efi_printk_status("Failed to detect secret key's size: ", status);
 	}
 
+	skey_setup->is_secure =
+		efi_get_secureboot(sys_table) == efi_secureboot_mode_enabled;
 	skey_setup->key_size = key_size;
 	skey_setup->final_status = status;
 
