@@ -32,6 +32,7 @@
 #include <linux/ctype.h>
 #include <linux/genhd.h>
 #include <linux/ktime.h>
+#include <linux/efi.h>
 #include <trace/events/power.h>
 
 #include "power.h"
