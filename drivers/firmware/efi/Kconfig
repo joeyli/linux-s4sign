@@ -187,6 +187,14 @@ config EFI_SECURE_KEY
 
 	  If unsure, say N.
 
+config EFI_SECURE_KEY_SB_ENFORCE
+	bool "Force checking secure boot when loading EFI root key"
+	default y
+	depends on EFI_SECURE_KEY
+	help
+	  Skip EFI root key when secure boot is not enabled. Without this,
+	  EFI root key will simply taint the kernel when no secure boot.
+
 endmenu
 
 config UEFI_CPER

@@ -15,6 +15,7 @@
 #include <linux/parser.h>
 #include <linux/random.h>
 #include <linux/scatterlist.h>
+#include <linux/moduleparam.h>
 #include <keys/efi-type.h>
 #include <keys/user-type.h>
 #include <crypto/algapi.h>
@@ -26,6 +27,9 @@ static u8 root_key[ROOT_KEY_SIZE];
 static unsigned long rkey_size;
 static bool is_loaded;
 static bool is_secure;
+
+static bool sb_enforce = IS_ENABLED(CONFIG_EFI_SECURE_KEY_SB_ENFORCE);
+module_param(sb_enforce, bool_enable_only, 0644);
 
 static void __init
 print_efi_rkey_setup_data(struct efi_rkey_setup_data *rkey_setup)
@@ -59,11 +63,13 @@ void __init parse_efi_root_key_setup(u64 phys_addr, u32 data_len)
 
 	/* keep efi root key */
 	if (rkey_setup->final_status == EFI_SUCCESS) {
-		memcpy(root_key, rkey_setup->root_key, rkey_setup->key_size);
-		rkey_size = rkey_setup->key_size;
-		is_loaded = true;
 		is_secure = rkey_setup->is_secure;
-		pr_info("EFI root key is loaded.\n");
+		if (is_secure || !sb_enforce) {
+			memcpy(root_key, rkey_setup->root_key, rkey_setup->key_size);
+			rkey_size = rkey_setup->key_size;
+			is_loaded = true;
+			pr_info("EFI root key is loaded.\n");
+		}
 		if (!is_secure) {
 			pr_warn("EFI root key is insecure when no secure boot.\n");
 		}
@@ -73,6 +79,14 @@ void __init parse_efi_root_key_setup(u64 phys_addr, u32 data_len)
 	memzero_explicit(setup_data,
 		sizeof(struct setup_data) + sizeof(struct efi_rkey_setup_data));
 	early_iounmap(setup_data, data_len);
+}
+
+static void __init clean_efi_root_key(void)
+{
+	memzero_explicit(root_key, ROOT_KEY_SIZE);
+	rkey_size = 0;
+	is_loaded = false;
+	is_secure = false;
 }
 
 #define ERK_HASH_SIZE SHA256_DIGEST_SIZE
@@ -704,6 +718,17 @@ static int __init init_efi_secure_key(void)
 	/* root_key must be loaded */
 	if (!is_loaded)
 		return 0;
+
+	if (!is_secure) {
+		if (sb_enforce) {
+			clean_efi_root_key();
+			pr_info("EFI root key is unloaded because insecure.\n");
+			return 0;
+		} else {
+			add_taint(TAINT_INSECURE_KEY, LOCKDEP_STILL_OK);
+			pr_warn("Tainted kernel because EFI root key is insecure.\n");
+		}
+	}
 
 	hash_tfm = crypto_alloc_shash(hash_alg, 0, CRYPTO_ALG_ASYNC);
 	if (IS_ERR(hash_tfm)) {

@@ -1122,6 +1122,12 @@
 			vendor GUIDs, all of them will be loaded. See
 			Documentation/acpi/ssdt-overlays.txt for details.
 
+	efi-secure-key.sb_enforce [EFI; X86]
+			When EFI_SECURE_KEY is set, this means that
+			EFI root key will not be loaded when secure boot is
+			not enabled. Note that if EFI_SECURE_KEY_SB_ENFORCE
+			is set, that is always true, so this option does
+			nothing.
 
 	eisa_irq_edge=	[PARISC,HW]
 			See header of drivers/parisc/eisa.c.
