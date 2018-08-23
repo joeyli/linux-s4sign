@@ -11,6 +11,10 @@
 #define SNAPSHOT_KEY_SIZE SHA512_DIGEST_SIZE
 #define DERIVED_KEY_SIZE SHA512_DIGEST_SIZE
 
+/* HMAC algorithm for hibernate snapshot signature */
+#define SNAPSHOT_HMAC	"hmac(sha512)"
+#define SNAPSHOT_DIGEST_SIZE	SHA512_DIGEST_SIZE
+
 struct swsusp_info {
 	struct new_utsname	uts;
 	u32			version_code;
@@ -19,6 +23,10 @@ struct swsusp_info {
 	unsigned long		image_pages;
 	unsigned long		pages;
 	unsigned long		size;
+	unsigned long		trampoline_pfn;
+	u8			encrypted_key_blob[KEY_BLOB_BUFF_LEN];
+	unsigned int		key_bloblen;
+	u8			signature[SNAPSHOT_DIGEST_SIZE];
 } __aligned(PAGE_SIZE);
 
 #ifdef CONFIG_HIBERNATION
@@ -34,6 +42,10 @@ extern int get_snapshot_auth_key(u8 *auth_key, bool may_sleep);
 extern int get_snapshot_enc_key(u8 *enc_key, bool may_sleep);
 extern int get_encrypted_snapshot_key_blob(u8 *buffer);
 extern void clean_snapshot_key(void);
+
+extern int snapshot_image_verify(void);
+extern int swsusp_prepare_hash(bool may_sleep);
+extern void swsusp_finish_hash(void);
 #else
 static int init_snapshot_key(void) { return 0; }
 static int init_snapshot_key_by_blob(u8 *encrypted_key_blob, long bloblen) { return 0; }
@@ -42,6 +54,10 @@ static int get_snapshot_auth_key(u8 *auth_key, bool may_sleep) { return 0; }
 static int get_snapshot_enc_key(u8 *enc_key, bool may_sleep) { return 0; }
 static int get_encrypted_snapshot_key_blob(u8 *buffer) { return 0; }
 static void clean_snapshot_key(void) {}
+
+static inline int snapshot_image_verify(void) { return 0; }
+static inline int swsusp_prepare_hash(bool may_sleep) { return 0; }
+static inline void swsusp_finish_hash(void) {}
 #endif	/* !CONFIG_HIBERNATION_ENC_AUTH */
 
 #ifdef CONFIG_ARCH_HIBERNATION_HEADER
@@ -179,6 +195,10 @@ extern int snapshot_read_next(struct snapshot_handle *handle);
 extern int snapshot_write_next(struct snapshot_handle *handle);
 extern void snapshot_write_finalize(struct snapshot_handle *handle);
 extern int snapshot_image_loaded(struct snapshot_handle *handle);
+extern int snapshot_create_trampoline(void);
+extern void snapshot_init_trampoline(void);
+extern void snapshot_restore_trampoline(void);
+extern void snapshot_free_trampoline(void);
 
 /* If unset, the snapshot device cannot be open. */
 extern atomic_t snapshot_device_available;
