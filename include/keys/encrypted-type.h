@@ -35,4 +35,7 @@ struct encrypted_key_payload {
 
 extern struct key_type key_type_encrypted;
 
+extern long encrypted_read_blob(const struct key *key, char __user *buffer,
+				char *kbuffer, size_t buflen);
+
 #endif /* _KEYS_ENCRYPTED_TYPE_H */
