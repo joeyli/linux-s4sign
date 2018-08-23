@@ -76,6 +76,18 @@ config HIBERNATION
 
 	  For more information take a look at <file:Documentation/power/swsusp.txt>.
 
+config HIBERNATION_ENC_AUTH
+ 	bool "Hibernation encryption and authentication"
+ 	depends on HIBERNATION
+ 	depends on ENCRYPTED_KEYS
+	select CRYPTO_AES
+ 	select CRYPTO_HMAC
+ 	select CRYPTO_SHA512
+ 	help
+	  This option will encrypt and authenticate the memory snapshot image
+	  of hibernation. It can prevent that the snapshot image be arbitrary
+	  modified. This function relies on encrypted key type.
+
 config ARCH_SAVE_PAGE_KEYS
 	bool
 

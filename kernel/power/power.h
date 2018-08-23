@@ -4,6 +4,12 @@
 #include <linux/utsname.h>
 #include <linux/freezer.h>
 #include <linux/compiler.h>
+#include <crypto/sha.h>
+
+/* The max size of encrypted key blob */
+#define KEY_BLOB_BUFF_LEN 512
+#define SNAPSHOT_KEY_SIZE SHA512_DIGEST_SIZE
+#define DERIVED_KEY_SIZE SHA512_DIGEST_SIZE
 
 struct swsusp_info {
 	struct new_utsname	uts;
@@ -19,6 +25,24 @@ struct swsusp_info {
 /* kernel/power/snapshot.c */
 extern void __init hibernate_reserved_size_init(void);
 extern void __init hibernate_image_size_init(void);
+
+#ifdef CONFIG_HIBERNATION_ENC_AUTH
+extern int init_snapshot_key(void);
+extern int init_snapshot_key_by_blob(u8 *encrypted_key_blob, long bloblen);
+extern int get_snapshot_key(void);
+extern int get_snapshot_auth_key(u8 *auth_key, bool may_sleep);
+extern int get_snapshot_enc_key(u8 *enc_key, bool may_sleep);
+extern int get_encrypted_snapshot_key_blob(u8 *buffer);
+extern void clean_snapshot_key(void);
+#else
+static int init_snapshot_key(void) { return 0; }
+static int init_snapshot_key_by_blob(u8 *encrypted_key_blob, long bloblen) { return 0; }
+static int get_snapshot_key(void) { return 0; }
+static int get_snapshot_auth_key(u8 *auth_key, bool may_sleep) { return 0; }
+static int get_snapshot_enc_key(u8 *enc_key, bool may_sleep) { return 0; }
+static int get_encrypted_snapshot_key_blob(u8 *buffer) { return 0; }
+static void clean_snapshot_key(void) {}
+#endif	/* !CONFIG_HIBERNATION_ENC_AUTH */
 
 #ifdef CONFIG_ARCH_HIBERNATION_HEADER
 /* Maximum size of architecture specific data in a hibernation header */
