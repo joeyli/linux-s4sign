@@ -36,6 +36,7 @@ struct swsusp_info {
 struct trampoline {
 	bool snapshot_key_valid;
 	int sig_verify_ret;
+	u8 snapshot_key[SNAPSHOT_KEY_SIZE];
 } __aligned(PAGE_SIZE);
 
 #ifdef CONFIG_HIBERNATION
@@ -55,6 +56,9 @@ extern int snapshot_key_init(void);
 extern bool snapshot_key_initialized(void);
 extern int snapshot_get_auth_key(u8 *auth_key, bool may_sleep);
 extern int snapshot_get_enc_key(u8 *enc_key, bool may_sleep);
+extern void snapshot_key_page_erase(unsigned long pfn, void *buff_addr);
+extern void snapshot_key_trampoline_backup(struct trampoline *t);
+extern void snapshot_key_trampoline_restore(struct trampoline *t);
 #else
 static inline int snapshot_image_verify_decrypt(void) { return 0; }
 static inline int snapshot_prepare_crypto(bool may_sleep, bool create_iv) { return 0; }
@@ -62,6 +66,8 @@ static inline void snapshot_finish_crypto(void) {}
 static inline int snapshot_prepare_hash(bool may_sleep) { return 0; }
 static inline void snapshot_finish_hash(void) {}
 static inline int snapshot_key_init(void) { return 0; }
+static inline void snapshot_key_trampoline_backup(struct trampoline *t) {}
+static inline void snapshot_key_trampoline_restore(struct trampoline *t) {}
 #endif	/* !CONFIG_HIBERNATION_ENC_AUTH */
 
 #ifdef CONFIG_ARCH_HIBERNATION_HEADER
