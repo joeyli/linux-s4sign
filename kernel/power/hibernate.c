@@ -271,10 +271,14 @@ static int create_image(int platform_mode)
 {
 	int error;
 
+	error = snapshot_prepare_hash(false);
+	if (error)
+		return error;
+
 	error = dpm_suspend_end(PMSG_FREEZE);
 	if (error) {
 		pr_err("Some devices failed to power down, aborting hibernation\n");
-		return error;
+		goto finish_hash;
 	}
 
 	error = platform_pre_snapshot(platform_mode);
@@ -330,6 +334,9 @@ static int create_image(int platform_mode)
 
 	dpm_resume_start(in_suspend ?
 		(error ? PMSG_RECOVER : PMSG_THAW) : PMSG_RESTORE);
+
+ finish_hash:
+	snapshot_finish_hash();
 
 	return error;
 }
@@ -694,6 +701,14 @@ int hibernate(void)
 		return -EPERM;
 	}
 
+	error = snapshot_key_init();
+	if (error)
+		return error;
+
+	error = snapshot_create_trampoline();
+	if (error)
+		return error;
+
 	lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
 	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
@@ -750,6 +765,7 @@ int hibernate(void)
 		pm_restore_gfp_mask();
 	} else {
 		pm_pr_dbg("Image restored successfully.\n");
+		snapshot_restore_trampoline();
 	}
 
  Free_bitmaps:
