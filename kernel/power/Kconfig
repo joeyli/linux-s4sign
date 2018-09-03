@@ -76,6 +76,20 @@ config HIBERNATION
 
 	  For more information take a look at <file:Documentation/power/swsusp.txt>.
 
+config HIBERNATION_ENC_AUTH
+ 	bool "Hibernation encryption and authentication"
+ 	depends on HIBERNATION
+	select TRUSTED_KEYS
+	select CRYPTO_AES
+ 	select CRYPTO_HMAC
+ 	select CRYPTO_SHA512
+ 	help
+	  This option will encrypt and authenticate the memory snapshot image
+	  of hibernation. It prevents that the snapshot image be arbitrarily
+	  modified. A user can use the TPM's trusted key or user defined key
+	  as the master key of hibernation. The TPM trusted key depends on TPM.
+	  The security of user defined key relies on user space.
+
 config ARCH_SAVE_PAGE_KEYS
 	bool
 

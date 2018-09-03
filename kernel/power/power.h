@@ -4,6 +4,12 @@
 #include <linux/utsname.h>
 #include <linux/freezer.h>
 #include <linux/compiler.h>
+#include <crypto/sha.h>
+
+/* The max size of encrypted key blob */
+#define KEY_BLOB_BUFF_LEN 512
+#define SNAPSHOT_KEY_SIZE SHA512_DIGEST_SIZE
+#define DERIVED_KEY_SIZE SHA512_DIGEST_SIZE
 
 struct swsusp_info {
 	struct new_utsname	uts;
@@ -19,6 +25,16 @@ struct swsusp_info {
 /* kernel/power/snapshot.c */
 extern void __init hibernate_reserved_size_init(void);
 extern void __init hibernate_image_size_init(void);
+
+#ifdef CONFIG_HIBERNATION_ENC_AUTH
+/* kernel/power/snapshot_key.c */
+extern int snapshot_key_init(void);
+extern bool snapshot_key_initialized(void);
+extern int snapshot_get_auth_key(u8 *auth_key, bool may_sleep);
+extern int snapshot_get_enc_key(u8 *enc_key, bool may_sleep);
+#else
+static inline int snapshot_key_init(void) { return 0; }
+#endif	/* !CONFIG_HIBERNATION_ENC_AUTH */
 
 #ifdef CONFIG_ARCH_HIBERNATION_HEADER
 /* Maximum size of architecture specific data in a hibernation header */
