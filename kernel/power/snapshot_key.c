@@ -9,6 +9,7 @@
  * as published by the Free Software Foundation; either version
  * 2 of the Licence, or (at your option) any later version.
  */
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/cred.h>
 #include <linux/key-type.h>
@@ -25,9 +26,12 @@ static struct crypto_shash *hash_tfm;
 static struct snapshot_key {
 	const char *key_name;
 	struct key *key;
+	unsigned long pfn;		/* pfn of keyblob */
+	unsigned long addr_offset;	/* offset in page for keyblob */
+	unsigned int len;		/* keyblob length */
+	u8 fingerprint[SHA512_DIGEST_SIZE];	/* fingerprint of keyblob */
 } skey = {
 	.key_name = "swsusp-kmk",
-	.key = NULL,
 };
 
 static int calc_hash(u8 *digest, const u8 *buf, unsigned int buflen,
@@ -50,7 +54,6 @@ static int calc_key_hash(u8 *key, unsigned int key_len, const char *salt,
 	unsigned int salted_buf_len;
 	u8 *salted_buf;
  	int ret;
-	print_hex_dump(KERN_INFO, "cal_key_hash: ", DUMP_PREFIX_NONE, 16, 1, key, key_len, 0);	//TODO: kill
 
 	if (!key || !hash_tfm || !hash)
 		return -EINVAL;
@@ -68,6 +71,68 @@ static int calc_key_hash(u8 *key, unsigned int key_len, const char *salt,
 	kzfree(salted_buf);
 
 	return ret;
+}
+
+static int get_key_fingerprint(u8 *fingerprint, u8 *key, unsigned int key_len,
+				bool may_sleep)
+{
+	return calc_key_hash(key, key_len, "FINGERPRINT", fingerprint, may_sleep);
+}
+
+void snapshot_key_page_erase(unsigned long pfn, void *buff_addr)
+{
+	struct trusted_key_payload *tkp;
+
+	if (!skey.key || pfn != skey.pfn)
+		return;
+
+	/* erase key data from snapshot buffer page */
+	down_write(&skey.key->sem);
+	tkp = skey.key->payload.data[0];
+	if (!memcmp(tkp->key, buff_addr + skey.addr_offset, tkp->key_len)) {
+		memzero_explicit(buff_addr + skey.addr_offset, skey.len);
+		pr_info("Erased swsusp key in snapshot pages.\n");
+	}
+	up_write(&skey.key->sem);
+}
+
+/* this function may sleeps because snapshot_key_init() */
+void snapshot_key_trampoline_backup(struct trampoline *t)
+{
+	struct trusted_key_payload *tkp;
+
+	if (!t || snapshot_key_init())
+		return;
+
+	down_read(&skey.key->sem);
+	tkp = skey.key->payload.data[0];
+	memcpy(t->snapshot_key, tkp->key, tkp->key_len);
+	up_read(&skey.key->sem);
+}
+
+/* Be called after snapshot image restored success */
+void snapshot_key_trampoline_restore(struct trampoline *t)
+{
+	struct trusted_key_payload *tkp;
+	u8 fingerprint[SHA512_DIGEST_SIZE];
+
+	if (!skey.key || !t)
+		return;
+
+	/* check key fingerprint before restore */
+	get_key_fingerprint(fingerprint, t->snapshot_key, skey.len, true);
+	if (memcmp(skey.fingerprint, fingerprint, SHA512_DIGEST_SIZE)) {
+		pr_warn("Restored swsusp key failed, fingerprint mismatch.\n");
+		snapshot_key_clean();
+		return;
+	}
+
+	down_write(&skey.key->sem);
+	tkp = skey.key->payload.data[0];
+	memcpy(tkp->key, t->snapshot_key, tkp->key_len);
+	up_write(&skey.key->sem);
+
+	memzero_explicit(t->snapshot_key, SNAPSHOT_KEY_SIZE);
 }
 
 /* Derive authentication/encryption key */
@@ -99,20 +164,43 @@ int snapshot_get_enc_key(u8 *enc_key, bool may_sleep)
 	return get_derived_key(enc_key, "ENC_KEY", may_sleep);
 }
 
+static bool invalid_key(struct key *key)
+{
+	struct trusted_key_payload *tkp = key->payload.data[0];
+	int i;
+
+	if (tkp->key_len > SNAPSHOT_KEY_SIZE) {
+		pr_warn("Size of swsusp key more than: %d.\n",
+			SNAPSHOT_KEY_SIZE);
+		return false;
+	}
+
+	/* zero keyblob is invalid key */
+	for (i = 0; i < tkp->key_len; i++)
+	{
+		if (tkp->key[i] != 0)
+			return false;
+	}
+	pr_warn("The swsusp key should not be zero.\n");
+
+	return true;
+}
+
 /* this function may sleeps */
 int snapshot_key_init(void)
 {
+	struct trusted_key_payload *tkp;
 	struct key *key;
 	int err;
 
-	pr_info("%s\n", __func__);
+	pr_debug("%s\n", __func__);
 
 	if (skey.key)
 		return 0;
 
 	hash_tfm = crypto_alloc_shash(hash_alg, 0, CRYPTO_ALG_ASYNC);
 	if (IS_ERR(hash_tfm)) {
-		pr_err("snapshot key: can't allocate %s transform: %ld\n",
+		pr_err("Can't allocate %s transform: %ld\n",
 			hash_alg, PTR_ERR(hash_tfm));
 		return PTR_ERR(hash_tfm);
 	}
@@ -120,15 +208,33 @@ int snapshot_key_init(void)
 	/* find out swsusp-key */
 	key = request_key(&key_type_trusted, skey.key_name, NULL);
 	if (IS_ERR(key)) {
-		pr_err("snapshot key: request key error: %ld\n", PTR_ERR(key));
+		pr_err("Request key error: %ld\n", PTR_ERR(key));
 		err = PTR_ERR(key);
 		goto key_fail;
 	}
 
+	down_read(&key->sem);
+	if (invalid_key(key)) {
+		err = -EINVAL;
+		goto key_invalid;
+	}
+
 	skey.key = key;
+	tkp = skey.key->payload.data[0];
+	skey.pfn = page_to_pfn(virt_to_page(tkp->key));
+	skey.addr_offset = (unsigned long) tkp->key & ~PAGE_MASK;
+	skey.len = tkp->key_len;
+	get_key_fingerprint(skey.fingerprint, tkp->key, tkp->key_len, true);
+	up_read(&key->sem);
+
+	pr_info("Snapshot key is initialled.\n");
+	pr_debug("Fingerprint %*phN\n", SHA512_DIGEST_SIZE, skey.fingerprint);
 
 	return 0;
 
+key_invalid:
+	up_read(&key->sem);
+	key_put(key);
 key_fail:
 	crypto_free_shash(hash_tfm);
 	hash_tfm = NULL;
@@ -142,4 +248,8 @@ void snapshot_key_clean(void)
 	hash_tfm = NULL;
 	key_put(skey.key);
 	skey.key = NULL;
+	skey.pfn = 0;
+	skey.len = 0;
+	skey.addr_offset = 0;
+	memzero_explicit(skey.fingerprint, SHA512_DIGEST_SIZE);
 }
