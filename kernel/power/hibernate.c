@@ -1034,6 +1034,39 @@ static ssize_t disk_store(struct kobject *kobj, struct kobj_attribute *attr,
 
 power_attr(disk);
 
+#ifdef CONFIG_HIBERNATION_ENC_AUTH
+static ssize_t disk_kmk_show(struct kobject *kobj, struct kobj_attribute *attr,
+			     char *buf)
+{
+	if (snapshot_key_initialized())
+		return sprintf(buf, "initialized\n");
+	else
+		return sprintf(buf, "uninitialized\n");
+}
+
+static ssize_t disk_kmk_store(struct kobject *kobj, struct kobj_attribute *attr,
+			      const char *buf, size_t n)
+{
+	int error = 0;
+	char *p;
+	int len;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	p = memchr(buf, '\n', n);
+	len = p ? p - buf : n;
+	if (strncmp(buf, "1", len))
+		return -EINVAL;
+
+	error = snapshot_key_init();
+
+	return error ? error : n;
+}
+
+power_attr(disk_kmk);
+#endif /* !CONFIG_HIBERNATION_ENC_AUTH */
+
 static ssize_t resume_show(struct kobject *kobj, struct kobj_attribute *attr,
 			   char *buf)
 {
@@ -1138,6 +1171,9 @@ power_attr(reserved_size);
 
 static struct attribute * g[] = {
 	&disk_attr.attr,
+#ifdef CONFIG_HIBERNATION_ENC_AUTH
+	&disk_kmk_attr.attr,
+#endif
 	&resume_offset_attr.attr,
 	&resume_attr.attr,
 	&image_size_attr.attr,
