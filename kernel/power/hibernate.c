@@ -275,10 +275,14 @@ static int create_image(int platform_mode)
 	if (error)
 		return error;
 
+	error = snapshot_prepare_crypto(false, true);
+	if (error)
+		goto finish_hash;
+
 	error = dpm_suspend_end(PMSG_FREEZE);
 	if (error) {
 		pr_err("Some devices failed to power down, aborting hibernation\n");
-		goto finish_hash;
+		goto finish_crypto;
 	}
 
 	error = platform_pre_snapshot(platform_mode);
@@ -335,6 +339,8 @@ static int create_image(int platform_mode)
 	dpm_resume_start(in_suspend ?
 		(error ? PMSG_RECOVER : PMSG_THAW) : PMSG_RESTORE);
 
+ finish_crypto:
+	snapshot_finish_crypto();
  finish_hash:
 	snapshot_finish_hash();
 
