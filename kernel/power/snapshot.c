@@ -1697,6 +1697,9 @@ __copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 			crypto_buffer = page_address(d_page);
 		}
 
+		/* Erase key data in snapshot */
+		snapshot_key_page_erase(pfn, crypto_buffer);
+
 		/* Encrypt hashed page */
 		encrypt_data_page(crypto_buffer);
 
@@ -2482,6 +2485,7 @@ void snapshot_init_trampoline(void)
 	t = (struct trampoline *)trampoline_buff;
 
 	init_sig_verify(t);
+	snapshot_key_trampoline_backup(t);
 
 	pr_info("Hibernation trampoline page prepared\n");
 }
@@ -2505,6 +2509,7 @@ void snapshot_restore_trampoline(void)
 	t = (struct trampoline *)trampoline_virt;
 
 	handle_sig_verify(t);
+	snapshot_key_trampoline_restore(t);
 	snapshot_free_trampoline();
 }
 

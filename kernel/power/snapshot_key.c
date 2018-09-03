@@ -29,10 +29,26 @@ static struct snapshot_key {
 	const char *key_name;
 	bool initialized;
 	unsigned int key_len;
+	unsigned long pfn;			/* pfn of keyblob */
+	unsigned long addr_offset;		/* offset in page for keyblob */
 	u8 key[SNAPSHOT_KEY_SIZE];
+	u8 fingerprint[SHA512_DIGEST_SIZE];	/* fingerprint of keyblob */
 } skey = {
 	.key_name = "swsusp-kmk",
 };
+
+static void snapshot_key_clean(void)
+{
+	crypto_free_shash(hash_tfm);
+	hash_tfm = NULL;
+	skey.initialized = false;
+	barrier();
+	skey.pfn = 0;
+	skey.key_len = 0;
+	skey.addr_offset = 0;
+	memzero_explicit(skey.key, SNAPSHOT_KEY_SIZE);
+	memzero_explicit(skey.fingerprint, SHA512_DIGEST_SIZE);
+}
 
 static int calc_hash(u8 *digest, const u8 *buf, unsigned int buflen,
 		     bool may_sleep)
@@ -79,6 +95,53 @@ static int calc_key_hash(u8 *key, unsigned int key_len, const char *salt,
 	kzfree(salted_buf);
 
 	return ret;
+}
+
+static int get_key_fingerprint(u8 *fingerprint, u8 *key, unsigned int key_len,
+				bool may_sleep)
+{
+	return calc_key_hash(key, key_len, "FINGERPRINT", fingerprint, may_sleep);
+}
+
+void snapshot_key_page_erase(unsigned long pfn, void *buff_addr)
+{
+	if (!skey.initialized || pfn != skey.pfn)
+		return;
+
+	/* erase key data from snapshot buffer page */
+	if (!memcmp(skey.key, buff_addr + skey.addr_offset, skey.key_len)) {
+		memzero_explicit(buff_addr + skey.addr_offset, skey.key_len);
+		pr_info("Erased swsusp key in snapshot pages.\n");
+	}
+}
+
+/* this function may sleeps because snapshot_key_init() */
+void snapshot_key_trampoline_backup(struct trampoline *t)
+{
+	if (!t || snapshot_key_init())
+		return;
+
+	memcpy(t->snapshot_key, skey.key, skey.key_len);
+}
+
+/* Be called after snapshot image restored success */
+void snapshot_key_trampoline_restore(struct trampoline *t)
+{
+	u8 fingerprint[SHA512_DIGEST_SIZE];
+
+	if (!skey.initialized || !t)
+		return;
+
+	/* check key fingerprint before restore */
+	get_key_fingerprint(fingerprint, t->snapshot_key, skey.key_len, true);
+	if (memcmp(skey.fingerprint, fingerprint, SHA512_DIGEST_SIZE)) {
+		pr_warn("Restored swsusp key failed, fingerprint mismatch.\n");
+		snapshot_key_clean();
+		return;
+	}
+
+	memcpy(skey.key, t->snapshot_key, skey.key_len);
+	memzero_explicit(t->snapshot_key, SNAPSHOT_KEY_SIZE);
 }
 
 /* Derive authentication/encryption key */
@@ -230,10 +293,14 @@ int snapshot_key_init(void)
 	if (err)
 		goto key_fail;
 
+	skey.pfn = page_to_pfn(virt_to_page(skey.key));
+	skey.addr_offset = (unsigned long) skey.key & ~PAGE_MASK;
+	get_key_fingerprint(skey.fingerprint, skey.key, skey.key_len, true);
 	barrier();
 	skey.initialized = true;
 
 	pr_info("Snapshot key is initialled.\n");
+	pr_debug("Fingerprint %*phN\n", SHA512_DIGEST_SIZE, skey.fingerprint);
 
 	return 0;
 
