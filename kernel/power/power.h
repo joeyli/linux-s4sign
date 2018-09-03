@@ -5,6 +5,7 @@
 #include <linux/freezer.h>
 #include <linux/compiler.h>
 #include <crypto/sha.h>
+#include <crypto/aes.h>
 
 /* The max size of encrypted key blob */
 #define KEY_BLOB_BUFF_LEN 512
@@ -24,6 +25,7 @@ struct swsusp_info {
 	unsigned long		pages;
 	unsigned long		size;
 	unsigned long		trampoline_pfn;
+	u8			iv[AES_BLOCK_SIZE];
 	u8			signature[SNAPSHOT_DIGEST_SIZE];
 } __aligned(PAGE_SIZE);
 
@@ -44,6 +46,8 @@ extern void __init hibernate_image_size_init(void);
 #ifdef CONFIG_HIBERNATION_ENC_AUTH
 /* kernel/power/snapshot.c */
 extern int snapshot_image_verify_decrypt(void);
+extern int swsusp_prepare_crypto(bool may_sleep, bool create_iv);
+extern void swsusp_finish_crypto(void);
 extern int snapshot_prepare_hash(bool may_sleep);
 extern void snapshot_finish_hash(void);
 /* kernel/power/snapshot_key.c */
@@ -53,6 +57,8 @@ extern int snapshot_get_enc_key(u8 *enc_key, bool may_sleep);
 extern void snapshot_key_clean(void);
 #else
 static inline int snapshot_image_verify_decrypt(void) { return 0; }
+static inline int swsusp_prepare_crypto(bool may_sleep, bool create_iv) { return 0; }
+static inline void swsusp_finish_crypto(void) {}
 static inline int snapshot_prepare_hash(bool may_sleep) { return 0; }
 static inline void snapshot_finish_hash(void) {}
 static int snapshot_key_init(void) { return 0; }
