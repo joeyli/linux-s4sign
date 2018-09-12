@@ -261,7 +261,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			break;
 		}
 		error = snapshot_key_init();
-		if (error)
+		if (error && snapshot_is_enforce_auth())
 			return error;
 		error = snapshot_create_trampoline();
 		if (error)
