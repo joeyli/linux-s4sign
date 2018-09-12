@@ -272,11 +272,11 @@ static int create_image(int platform_mode)
 	int error;
 
 	error = snapshot_prepare_hash(false);
-	if (error)
+	if (error && snapshot_is_enforce_auth())
 		return error;
 
 	error = snapshot_prepare_crypto(false, true);
-	if (error)
+	if (error && snapshot_is_enforce_auth())
 		goto finish_hash;
 
 	error = dpm_suspend_end(PMSG_FREEZE);
@@ -708,7 +708,7 @@ int hibernate(void)
 	}
 
 	error = snapshot_key_init();
-	if (error)
+	if (error && snapshot_is_enforce_auth())
 		return error;
 
 	error = snapshot_create_trampoline();
@@ -1248,6 +1248,8 @@ static int __init hibernate_setup(char *str)
 	} else if (IS_ENABLED(CONFIG_STRICT_KERNEL_RWX)
 		   && !strncmp(str, "protect_image", 13)) {
 		enable_restore_image_protection();
+	} else if (!strncmp(str, "enforce_auth", 10)) {
+		snapshot_set_enforce_auth();
 	}
 	return 1;
 }

@@ -36,6 +36,7 @@ struct swsusp_info {
 struct trampoline {
 	bool snapshot_key_valid;
 	int sig_verify_ret;
+	bool enforce_auth;
 	u8 snapshot_key[SNAPSHOT_KEY_SIZE];
 } __aligned(PAGE_SIZE);
 
@@ -51,6 +52,8 @@ extern int snapshot_prepare_crypto(bool may_sleep, bool create_iv);
 extern void snapshot_finish_crypto(void);
 extern int snapshot_prepare_hash(bool may_sleep);
 extern void snapshot_finish_hash(void);
+extern void snapshot_set_enforce_auth(void);
+extern int snapshot_is_enforce_auth(void);
 /* kernel/power/snapshot_key.c */
 extern int snapshot_key_init(void);
 extern bool snapshot_key_initialized(void);
@@ -65,6 +68,8 @@ static inline int snapshot_prepare_crypto(bool may_sleep, bool create_iv) { retu
 static inline void snapshot_finish_crypto(void) {}
 static inline int snapshot_prepare_hash(bool may_sleep) { return 0; }
 static inline void snapshot_finish_hash(void) {}
+static inline void snapshot_set_enforce_auth(void) {}
+static inline int snapshot_is_enforce_auth(void) { return 0; }
 static inline int snapshot_key_init(void) { return 0; }
 static inline void snapshot_key_trampoline_backup(struct trampoline *t) {}
 static inline void snapshot_key_trampoline_restore(struct trampoline *t) {}

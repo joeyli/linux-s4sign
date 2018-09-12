@@ -90,6 +90,17 @@ config HIBERNATION_ENC_AUTH
 	  as the master key of hibernation. The TPM trusted key depends on TPM.
 	  The security of user defined key relies on user space.
 
+config HIBERNATION_ENC_AUTH_FORCE
+	bool "Require hibernate snapshot image to be validly signed"
+	depends on HIBERNATION_ENC_AUTH
+	help
+	  This option will prevent that a snapshot image without (valid)
+	  signature be restored. Without this option, an unauthenticated
+	  snapshot image can be restored but the restored kernel will be
+	  tainted, which also means that the hibernation can be triggered
+	  without snapshot key but kernel will be tainted without this
+	  option.
+
 config ARCH_SAVE_PAGE_KEYS
 	bool
 

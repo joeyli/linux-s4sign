@@ -1538,6 +1538,23 @@ static int decrypt_data_page(void *encrypted_page)
 	return ret;
 }
 
+/* enforce the snapshot to be signed */
+#ifdef CONFIG_HIBERNATION_ENC_AUTH_FORCE
+static bool enforce_auth = true;
+#else
+static bool enforce_auth;
+#endif
+
+void snapshot_set_enforce_auth(void)
+{
+	enforce_auth = true;
+}
+
+int snapshot_is_enforce_auth(void)
+{
+	return enforce_auth;
+}
+
 /*
  * Signature of snapshot image
  */
@@ -1604,6 +1621,8 @@ int snapshot_prepare_hash(bool may_sleep)
 	crypto_free_shash(tfm);
 	s4_verify_digest = NULL;
 	s4_verify_desc = NULL;
+	if (!enforce_auth)
+		ret = 0;
 	return ret;
 }
 
@@ -1665,6 +1684,8 @@ int snapshot_image_verify_decrypt(void)
 		pr_warn("Signature verification failed: %d\n", ret);
  error:
 	sig_verify_ret = ret;
+	if (!enforce_auth)
+		ret = 0;
 	return ret;
 }
 
@@ -1752,6 +1773,7 @@ static void load_signature(struct swsusp_info *info)
 
 static void init_sig_verify(struct trampoline *t)
 {
+	t->enforce_auth = enforce_auth;
 	t->sig_verify_ret = sig_verify_ret;
 	t->snapshot_key_valid = snapshot_key_valid;
 	sig_verify_ret = 0;
@@ -1760,11 +1782,25 @@ static void init_sig_verify(struct trampoline *t)
 
 static void handle_sig_verify(struct trampoline *t)
 {
-	if (t->sig_verify_ret)
+	enforce_auth = t->enforce_auth;
+	if (enforce_auth)
+		pr_info("Enforce the snapshot to be validly signed\n");
+
+	if (t->sig_verify_ret) {
 		pr_warn("Signature verification failed: %d\n",
 			t->sig_verify_ret);
-	else if (t->snapshot_key_valid)
+		if (t->snapshot_key_valid)
+			pr_warn("Did not find valid snapshot key.\n");
+		/* taint kernel */
+		if (!enforce_auth) {
+			pr_warn("System resumed from unsafe snapshot - "
+				"tainting kernel\n");
+			add_taint(TAINT_UNSAFE_HIBERNATE, LOCKDEP_STILL_OK);
+			pr_info("%s\n", print_tainted());
+		}
+	} else if (t->snapshot_key_valid) {
 		pr_info("Signature verification passed.\n");
+	}
 }
 #else
 static int

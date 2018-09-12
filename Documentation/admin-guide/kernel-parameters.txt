@@ -3991,6 +3991,12 @@
 		protect_image	Turn on image protection during restoration
 				(that will set all pages holding image data
 				during restoration read-only).
+		enforce_auth	When HIBERNATION_ENC_AUTH is set, this means
+				that snapshot image without (valid) signature
+				will fail to restore.
+				Note that if HIBERNATION_ENC_AUTH_FORCE is
+				set, that is always true, so this option does
+				nothing.
 
 	retain_initrd	[RAM] Keep initrd memory after extraction
 
