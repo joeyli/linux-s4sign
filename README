@@ -1,1 +1,1 @@
-Patches of hibernation verification be moved to https://github.com/joeyli/linux/commits/s4verify-hmac-v6.13/
+Patches of hibernation verification (aka. s4sign or s4verify) be moved to https://github.com/joeyli/linux/commits/s4verify-hmac-v6.13/
